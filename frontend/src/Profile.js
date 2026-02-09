@@ -3,7 +3,6 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import './Table.css';
 
-hi
 
 const Profile = () => {
     const days = ["Mon", "Tue", "Wed", "Thu", "Fri"];
