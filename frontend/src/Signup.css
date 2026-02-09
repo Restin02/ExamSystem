@@ -1,0 +1,7 @@
+.signup-container { display: flex; justify-content: center; align-items: center; height: 100vh; background: #f1f5f9; }
+.signup-card { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 350px; display: flex; flex-direction: column; gap: 15px; }
+.password-field { display: flex; position: relative; }
+.password-field input { width: 100%; }
+.password-field button { position: absolute; right: 10px; top: 25%; background: none; border: none; color: #3b82f6; cursor: pointer; font-size: 0.8rem; }
+.signup-btn, .verify-btn { background: #1e3a8a; color: white; border: none; padding: 12px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+.signup-btn:hover { background: #3b82f6; }

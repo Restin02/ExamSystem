@@ -1,0 +1,120 @@
+/* Container Layout */
+.dashboard-wrapper {
+    padding: 40px;
+    background-color: #f4f7f6;
+    min-height: 100vh;
+}
+
+.dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+}
+
+/* Typography */
+h1 { color: #2c3e50; margin: 0; }
+p { color: #7f8c8d; margin: 5px 0 0 0; }
+
+/* Table Card */
+.table-card {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+}
+
+.schedule-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.schedule-table th {
+    background-color: #34495e;
+    color: white;
+    padding: 15px;
+    font-weight: 500;
+}
+
+.schedule-table td {
+    padding: 15px;
+    border: 1px solid #eee;
+    text-align: center;
+}
+
+/* Day Column Styling */
+.day-column {
+    background-color: #f9f9f9;
+    font-weight: bold;
+    color: #2c3e50;
+    width: 120px;
+}
+
+/* Filled vs Empty Slots */
+.slot-filled {
+    background-color: #e8f4fd;
+    color: #2980b9;
+    font-weight: 600;
+    border: 1px solid #d6eaf8 !important;
+}
+
+.slot-empty {
+    color: #bdc3c7;
+    font-style: italic;
+    font-size: 0.9rem;
+}
+
+/* Buttons */
+.header-actions button {
+    margin-left: 10px;
+    padding: 10px 20px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+}
+.header-actions {
+    display: flex;
+    gap: 15px; /* Adds space between the two buttons */
+}
+
+.btn-secondary {
+    background-color: #ecf0f1;
+    color: #2c3e50;
+    padding: 10px 20px;
+    border-radius: 6px;
+    border: 1px solid #bdc3c7;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-secondary:hover {
+    background-color: #d5dbdb;
+}
+
+.btn-primary {
+    background-color: #3498db;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.btn-primary { background: #3498db; color: white; }
+.btn-secondary { background: #ecf0f1; color: #7f8c8d; }
+
+/* Print Logic (Remains hidden until Print button is clicked) */
+.print-only { display: none; }
+
+@media print {
+    body { background: white; }
+    .no-print { display: none !important; }
+    .print-only { display: block; text-align: center; margin-bottom: 20px; }
+    .table-card { box-shadow: none; padding: 0; }
+    .schedule-table th { background-color: #eee !important; color: black; border: 1px solid #000; }
+    .schedule-table td { border: 1px solid #000; }
+    .slot-filled { background-color: #f0f0f0 !important; }
+}
