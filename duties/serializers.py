@@ -1,23 +1,29 @@
 from rest_framework import serializers
-from .models import StaffProfile, Classroom, ExamSession, DutyAssignment
-from django.contrib.auth.models import User
+# Import the new keyword-aligned model names
+from .models import StaffManagement, ClassroomSetup, ExamSchedule, DutyAssignment
 
-class UserSerializer(serializers.ModelSerializer):
+class StaffManagementSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source='user.first_name', read_only=True)
     class Meta:
-        model = User
-        fields = ['id', 'username', 'first_name', 'last_name']
+        model = StaffManagement
+        fields = ['id', 'staff_id', 'name', 'department', 'branch', 'phone_number', 'grade']
 
-class StaffSerializer(serializers.ModelSerializer):
-    user = UserSerializer()
+class ClassroomSetupSerializer(serializers.ModelSerializer):
     class Meta:
-        model = StaffProfile
+        model = ClassroomSetup
+        fields = fields = '__all__'
+
+class ExamScheduleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExamSchedule
         fields = '__all__'
 
 class DutyAssignmentSerializer(serializers.ModelSerializer):
-    staff_name = serializers.ReadOnlyField(source='staff.user.username')
-    course = serializers.ReadOnlyField(source='session.course_name')
-    room_no = serializers.ReadOnlyField(source='room.room_number')
+    # This ensures the frontend gets the names, not just IDs
+    staff_name = serializers.CharField(source='staff.user.first_name', read_only=True)
+    room_name = serializers.CharField(source='room.room_no', read_only=True)
+    session_details = serializers.CharField(source='session.subject', read_only=True)
 
     class Meta:
         model = DutyAssignment
-        fields = '__all__'
+        fields = ['id', 'staff', 'staff_name', 'session', 'session_details', 'room', 'room_name']

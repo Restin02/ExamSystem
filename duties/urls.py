@@ -1,14 +1,30 @@
 from django.urls import path
-from rest_framework.authtoken.views import obtain_auth_token
 from . import views
-from .views import manage_profile
+from .views import AdminTokenView, CustomAuthToken
 
 urlpatterns = [
-    path('api/login/', obtain_auth_token, name='api_login'),
-    path('api/send-otp/', views.send_otp, name='send_otp'),
-    path('api/verify-otp/', views.verify_otp, name='verify_otp'),
-    path('api/profile/', views.manage_profile, name='manage_profile'),
-    path('api/allocate/', views.allocate_duties, name='allocate_duties'),
-    path('api/duties/', views.get_duties, name='get_duties'),
-    path('api/signup/', views.send_otp, name='signup'),
+    # --- 1. Authentication ---
+    path('auth/token/', AdminTokenView.as_view(), name='api_token_auth'),
+    path('login/', CustomAuthToken.as_view(), name='api_login'),
+    
+    # --- 2. Admin Actions ---
+    path('admin/insert-staff/', views.admin_insert_staff, name='insert_staff'),
+    path('admin/get-all-staff/', views.get_all_staff, name='get_all_staff'),
+    path('admin/delete-staff/<str:username>/', views.delete_staff, name='delete_staff'),
+    path('admin/get-staff-timetable/<str:username>/', views.get_staff_timetable, name='get_staff_timetable'),
+    path('admin/get-rooms/', views.get_rooms, name='get_rooms'),
+    path('admin/insert-room/', views.insert_classroom, name='insert_classroom'),
+    path('admin/delete-room/<int:id>/', views.delete_room, name='delete_room'),
+    path('admin/get-exams/', views.get_all_exams, name='get_all_exams'),
+    path('admin/save-timetable/', views.save_timetable, name='save_timetable'),
+    path('admin/insert-exam/', views.insert_exam_schedule, name='insert_exam'),
+    
+    # FIXED: Added 'admin/' prefix to match your React request
+    path('admin/delete-exam-schedule/<int:pk>/', views.delete_exam_schedule, name='delete_exam'),
+
+    # --- 3. Staff/General Actions ---
+    path('staff/my-dashboard/', views.staff_dashboard, name='staff_dashboard'),
+    path('allocate/', views.allocate_duties, name='allocate_duties'),
+    path('duties/', views.get_duties, name='get_duties'),
+    path('staff/upload-image/', views.upload_profile_image, name='upload_profile_image'),
 ]

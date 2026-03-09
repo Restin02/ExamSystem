@@ -1,0 +1,373 @@
+/* --- Global & Dashboard Layout --- */
+.admin-dashboard, .staff-dashboard-root { 
+    display: flex; 
+    height: 100vh; 
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+    background: #f4f7f6;
+}
+
+.admin-sidebar { 
+    width: 260px; 
+    background: #2c3e50; 
+    color: white; 
+    padding: 25px 15px; 
+    flex-shrink: 0; 
+    display: flex;
+    flex-direction: column;
+}
+
+.admin-sidebar h2 { 
+    font-size: 1.2rem; 
+    margin-bottom: 30px; 
+    text-align: center; 
+    color: #3498db;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.admin-sidebar button { 
+    width: 100%; 
+    padding: 12px 15px; 
+    margin: 4px 0; 
+    cursor: pointer; 
+    background: none; 
+    color: #bdc3c7; 
+    border: none; 
+    text-align: left; 
+    transition: all 0.2s ease;
+    border-radius: 5px;
+    font-size: 0.95rem;
+}
+
+.admin-sidebar button.active { 
+    background: #3498db; 
+    color: white; 
+    font-weight: 600; 
+}
+
+.admin-sidebar button:hover:not(.active) { 
+    background: #34495e; 
+    color: white; 
+}
+
+.admin-main-content { 
+    flex: 1; 
+    padding: 40px; 
+    overflow-y: auto; 
+}
+
+/* --- Form Layouts (Admin) --- */
+.admin-form { 
+    display: flex; 
+    flex-direction: column; 
+    gap: 15px; 
+    max-width: 900px; 
+    background: white; 
+    padding: 30px; 
+    border-radius: 10px; 
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08); 
+    margin-bottom: 30px;
+}
+
+.form-row {
+    display: flex;
+    gap: 20px;
+}
+
+.form-row > div {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.admin-form label { 
+    font-weight: 600; 
+    margin-bottom: 6px; 
+    color: #444; 
+    font-size: 0.85rem; 
+}
+
+.admin-form input, .admin-form select { 
+    padding: 12px; 
+    border: 1px solid #dfe6e9; 
+    border-radius: 5px; 
+    outline-color: #3498db; 
+    font-size: 0.9rem;
+}
+
+/* --- Interactive Timetable Grid (Admin Editing) --- */
+.timetable-grid-container { 
+    margin-top: 25px; 
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+.timetable-grid { 
+    width: 100%; 
+    border-collapse: collapse; 
+    border: 1px solid #eee;
+}
+
+.timetable-grid th { 
+    background: #34495e; 
+    color: white; 
+    padding: 12px;
+    font-size: 0.9rem;
+}
+
+.timetable-grid td { 
+    border: 1px solid #dfe6e9; 
+    padding: 5px; 
+}
+
+.day-label { 
+    font-weight: bold; 
+    background: #f8f9fa; 
+    width: 100px; 
+    color: #2c3e50;
+    text-align: center;
+}
+
+.period-select {
+    width: 100%;
+    border: none;
+    padding: 10px;
+    background: transparent;
+    cursor: pointer;
+    text-align: center;
+    font-weight: 500;
+}
+
+.period-select:hover { background: #f0f7ff; }
+
+/* --- Staff Dashboard View (User/Read-Only) --- */
+.staff-dashboard { 
+    max-width: 1100px; 
+    margin: 0 auto; 
+    padding: 20px;
+}
+
+.staff-header-card { 
+    background: white; 
+    padding: 25px; 
+    border-radius: 12px; 
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    margin-bottom: 25px;
+    border-top: 4px solid #3498db;
+}
+
+.staff-header-card h2 { margin: 0 0 10px 0; color: #2c3e50; }
+
+.view-table { 
+    width: 100%; 
+    border-collapse: collapse; 
+    background: white; 
+    border-radius: 10px; 
+    overflow: hidden; 
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+}
+
+.view-table th { 
+    background: #f8f9fa; 
+    padding: 18px; 
+    color: #7f8c8d; 
+    font-weight: 600;
+    border-bottom: 2px solid #edf2f7;
+}
+
+.view-table td { 
+    padding: 20px; 
+    border-bottom: 1px solid #f0f0f0; 
+    text-align: center; 
+}
+
+.occupied { 
+    background: #e3f2fd; 
+    color: #1976d2; 
+    font-weight: bold; 
+    border-radius: 6px;
+    padding: 10px;
+    display: block;
+}
+
+.free { 
+    color: #cbd5e0; 
+    font-style: italic;
+    font-size: 0.85rem;
+}
+
+/* --- Common Components --- */
+.btn-primary {
+    background-color: #3498db;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 600;
+    transition: background 0.2s;
+    align-self: flex-start;
+}
+
+.btn-primary:hover { background-color: #2980b9; }
+
+.table-container { 
+    margin-top: 20px; 
+    background: white; 
+    border-radius: 8px; 
+    overflow: hidden; 
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05); 
+}
+
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th, .data-table td { padding: 15px; border-bottom: 1px solid #eee; text-align: left; }
+.data-table th { background: #f8f9fa; color: #636e72; font-size: 0.8rem; text-transform: uppercase; }
+
+.badge {
+    background: #e8f5e9;
+    color: #2e7d32;
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.info-banner {
+    background-color: #e3f2fd;
+    border-left: 5px solid #2196f3;
+    padding: 15px;
+    margin-bottom: 25px;
+    border-radius: 4px;
+    color: #0d47a1;
+    font-size: 0.9rem;
+}
+
+/* Container Layout */
+.staff-container {
+    padding: 30px;
+    background-color: #f8fafc;
+    min-height: 100vh;
+    font-family: 'Inter', sans-serif;
+}
+
+/* Profile Header */
+.staff-header {
+    background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+    color: white;
+    padding: 30px;
+    border-radius: 12px;
+    margin-bottom: 30px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.staff-header h1 { margin: 0 0 15px 0; font-size: 1.8rem; color: white; }
+
+.meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    font-size: 0.95rem;
+    opacity: 0.9;
+}
+
+.status-pill {
+    background: #27ae60;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+}
+
+/* Timetable Card */
+.timetable-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    overflow: hidden;
+}
+
+.card-header {
+    padding: 20px;
+    border-bottom: 1px solid #edf2f7;
+}
+
+.card-header h3 { margin: 0; color: #2d3748; }
+.card-header p { margin: 5px 0 0 0; color: #718096; font-size: 0.85rem; }
+
+/* The 5x6 Table */
+.table-responsive { overflow-x: auto; }
+
+.staff-view-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: center;
+}
+
+.staff-view-table th {
+    background: #f7fafc;
+    padding: 15px;
+    color: #4a5568;
+    font-weight: 600;
+    font-size: 0.85rem;
+    border-bottom: 2px solid #edf2f7;
+}
+
+.staff-view-table td {
+    padding: 20px 10px;
+    border-bottom: 1px solid #edf2f7;
+    height: 80px; /* Consistent height for the grid */
+}
+
+.day-col {
+    font-weight: bold;
+    color: #2d3748;
+    background: #f7fafc;
+    width: 100px;
+}
+
+/* Slots Styles */
+.slot.filled {
+    background-color: #ebf8ff; /* Light Blue */
+}
+
+.subject-badge {
+    background: #3182ce;
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-weight: bold;
+    display: inline-block;
+    box-shadow: 0 2px 4px rgba(49, 130, 206, 0.3);
+}
+
+.free-label {
+    background: white;
+    color: #3182ce;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-weight: bold;
+    display: inline-block;
+    box-shadow: 0 2px 4px rgba(49, 130, 206, 0.3);
+}
+
+.loader {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    font-size: 1.2rem;
+    color: #3498db;
+}
+
+.btn-delete:hover {
+    background-color: #ff4d4d;
+    cursor: pointer;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}

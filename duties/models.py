@@ -1,41 +1,48 @@
 from django.db import models
 from django.contrib.auth.models import User
 
-# 1. Staff Profile: Stores teacher details and duty counts
-class StaffProfile(models.Model):
+class StaffManagement(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
+    staff_id = models.CharField(max_length=20, unique=True)
     department = models.CharField(max_length=100)
-    phone_number = models.CharField(max_length=15, blank=True, null=True)
-    email = models.EmailField(blank=True, null=True)
+    branch = models.CharField(max_length=100)
+    phone_number = models.CharField(max_length=15)
+    grade = models.CharField(max_length=50, default='Assistant Professor')
+    timetable_data = models.JSONField(default=list, blank=True) # Keyword: Staff Timetable
     duty_count = models.IntegerField(default=0)
-    timetable = models.JSONField(default=dict, blank=True)
+    profile_image = models.ImageField(upload_to='profile_pics/', null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Staff Management"
+        verbose_name_plural = "Staff Management"
 
     def __str__(self):
-        return self.user.username
-        
-# 2. Classroom: Stores where the exams happen
-class Classroom(models.Model):
-    room_number = models.CharField(max_length=10)
-    building_block = models.CharField(max_length=50)
+        return self.user.first_name
+
+class ClassroomSetup(models.Model):
+    block = models.CharField(max_length=50)
+    room_no = models.CharField(max_length=20)
     capacity = models.IntegerField()
+    date = models.DateField(null=True, blank=True)
 
     def __str__(self):
-        return f"Room {self.room_number} - {self.building_block}"
+        return f"{self.block} - {self.room_no}"
 
-# 3. Exam Session: Stores when the exams happen
-class ExamSession(models.Model):
-    course_name = models.CharField(max_length=200)
+    class Meta:
+        verbose_name = "Classroom Setup"
+        verbose_name_plural = "Classroom Setup"
+
+class ExamSchedule(models.Model):
+    course_name = models.CharField(max_length=100)
+    subject = models.CharField(max_length=100)
     date = models.DateField()
-    time_slot = models.CharField(max_length=50) # Morning or Afternoon
+    time_slot = models.CharField(max_length=10)
 
-    def __str__(self):
-        return f"{self.course_name} on {self.date}"
+    class Meta:
+        verbose_name = "Exam Schedule"
+        verbose_name_plural = "Exam Schedule"
 
-# 4. Duty Assignment: The "Result" (Who is where and when)
 class DutyAssignment(models.Model):
-    staff = models.ForeignKey(StaffProfile, on_delete=models.CASCADE)
-    session = models.ForeignKey(ExamSession, on_delete=models.CASCADE)
-    room = models.ForeignKey(Classroom, on_delete=models.CASCADE)
-
-    def __str__(self):
-        return f"{self.staff.user.username} - {self.room.room_number}"
+    staff = models.ForeignKey(StaffManagement, on_delete=models.CASCADE)
+    session = models.ForeignKey(ExamSchedule, on_delete=models.CASCADE)
+    room = models.ForeignKey(ClassroomSetup, on_delete=models.CASCADE)

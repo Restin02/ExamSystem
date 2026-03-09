@@ -103,6 +103,43 @@ p { color: #7f8c8d; margin: 5px 0 0 0; }
     font-weight: 600;
 }
 
+.login-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    background-color: #f4f7f6;
+}
+
+.login-form {
+    background: white;
+    padding: 40px;
+    border-radius: 10px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    width: 350px;
+    text-align: center;
+}
+
+.login-form input {
+    width: 100%;
+    margin-bottom: 15px;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+}
+
+.role-selection {
+    margin: 15px 0;
+    display: flex;
+    justify-content: space-around;
+}
+
+.signup-link {
+    margin-top: 20px;
+    font-size: 0.9rem;
+    color: #666;
+}
+
 .btn-primary { background: #3498db; color: white; }
 .btn-secondary { background: #ecf0f1; color: #7f8c8d; }
 

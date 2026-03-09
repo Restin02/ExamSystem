@@ -1,9 +1,9 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './Login';
-import Signup from './Signup';
-import Dashboard from './Dashboard';
+import StaffDashboard from './StaffDashboard';
 import { useState } from 'react';
 import Profile from './Profile';
+import AdminHome from './AdminHome';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -12,12 +12,12 @@ function App() {
     <Router>
       <Routes>
         <Route path="/login" element={<Login onLogin={() => setIsAuthenticated(true)} />} />
-        <Route path="/signup" element={<Signup />} />
         <Route 
-          path="/dashboard" element={isAuthenticated ? <Dashboard /> : <Navigate to="/login" />} 
+          path="/staff-dashboard" element={isAuthenticated ? <StaffDashboard /> : <Navigate to="/login" />} 
         />
         <Route path="/profile" element={<Profile />} />
         <Route path="/" element={<Navigate to="/login" />} />
+        <Route path="/admin-home" element={<AdminHome />} />
       </Routes>
     </Router>
   );
