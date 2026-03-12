@@ -3,13 +3,25 @@ import axios from 'axios';
 
 const ExamSchedule = ({ departments, token, renderBranchOptions, renderSemesterOptions }) => {
     // 1. State Definitions
-    const [examBase, setExamBase] = useState({ date: '', session: '', examType: '' });
+    const [examBase, setExamBase] = useState({ date: '', session: '', examType: 'Internal Test 1' });
     const [examEntries, setExamEntries] = useState([{ dept: 'B.Tech', branch: '', sem: 'S1', subject: '' }]);
-    const [savedSchedules, setSavedSchedules] = useState([]); // This is your main data source
+    
+    // --- STAFF DUTY STATE (Including Exam Type) ---
+    const [staffGradeDuty, setStaffGradeDuty] = useState([
+    { grade: 'Assistant Professor', examType: 'Internal Test 1', count: '2' }
+]);
+    
+    const [savedSchedules, setSavedSchedules] = useState([]); 
     const [loading, setLoading] = useState(true);
 
     const [filterDate, setFilterDate] = useState('');
     const [filterDept, setFilterDept] = useState('');
+
+    const getDayName = (dateString) => {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-US', { weekday: 'long' });
+    };
 
     // 2. Fetch Data
     const fetchSchedules = useCallback(async () => {
@@ -30,20 +42,17 @@ const ExamSchedule = ({ departments, token, renderBranchOptions, renderSemesterO
         fetchSchedules();
     }, [fetchSchedules]);
 
-    // 3. Delete Handler (Fixed the setScheduledExams error)
+    // 3. Delete Handler
     const handleDeleteSchedule = async (id) => {
         try {
             await axios.delete(`http://127.0.0.1:8000/api/admin/delete-exam-schedule/${id}/`, {
                 headers: { 'Authorization': `Token ${token}` }
             });
-
-            // CORRECTED: Use setSavedSchedules instead of setScheduledExams
             setSavedSchedules(prev => prev.filter(exam => exam.id !== id));
-            
             alert("Exam schedule deleted successfully!");
         } catch (err) {
             console.error("Delete Error:", err);
-            alert("Failed to delete. Please ensure the backend route exists.");
+            alert("Failed to delete.");
         }
     };
 
@@ -65,6 +74,30 @@ const ExamSchedule = ({ departments, token, renderBranchOptions, renderSemesterO
         setExamEntries(updated);
     };
 
+    // --- STAFF DUTY MANAGEMENT FUNCTIONS ---
+    const addStaffGrade = () => {
+        setStaffGradeDuty([...staffGradeDuty, { grade: 'Assistant Professor', examType: 'Internal Test 1', count: '' }]);
+    };
+
+    const updateStaffDuty = (index, field, value) => {
+        const updated = [...staffGradeDuty];
+        updated[index][field] = value;
+        setStaffGradeDuty(updated);
+    };
+
+    const handleStaffDutyUpdate = async (e) => {
+        e.preventDefault();
+        try {
+            await axios.post('http://127.0.0.1:8000/api/admin/update-staff-duty-counts/', 
+                { duties: staffGradeDuty }, 
+                { headers: { 'Authorization': `Token ${token}` }}
+            );
+            alert("Staff Duty Counts updated based on Grade and Exam Type!");
+        } catch (err) {
+            alert("Error updating staff duty counts.");
+        }
+    };
+
     const handleExamSubmit = async (e) => {
         e.preventDefault();
         const payload = { ...examBase, schedules: examEntries };
@@ -72,19 +105,67 @@ const ExamSchedule = ({ departments, token, renderBranchOptions, renderSemesterO
             await axios.post('http://127.0.0.1:8000/api/admin/insert-exam/', payload, {
                 headers: { 'Authorization': `Token ${token}` }
             });
-            alert("Exam Schedule Saved Successfully!");
+            alert("Exam Schedule Saved!");
             setExamEntries([{ dept: 'B.Tech', branch: '', sem: 'S1', subject: '' }]);
             fetchSchedules(); 
-        } catch (err) { 
-            alert("Error saving exam schedule."); 
-        }
+        } catch (err) { alert("Error saving exam schedule."); }
     };
 
     return (
         <div className="tab-section">
-            <h3>Exam Schedule Management</h3>
-            
-            {/* --- ADD EXAM FORM --- */}
+            {/* --- SECTION 1: STAFF DUTY REQUIREMENTS (WITH EXAM TYPE) --- */}
+            <div className="staff-duty-section" style={{ background: '#fff9e6', padding: '20px', borderRadius: '8px', marginBottom: '30px', border: '1px solid #ffeeba' }}>
+                <h3 style={{ marginTop: 0, color: '#856404' }}>Staff Duty Settings</h3>
+                <p style={{ fontSize: '13px', color: '#666' }}>Set duty counts per grade for specific exam types (e.g., Assistant Prof - Internal: 2, Regular: 3).</p>
+                
+                <form onSubmit={handleStaffDutyUpdate}>
+                    {staffGradeDuty.map((duty, index) => (
+                        <div key={index} style={{ display: 'flex', gap: '10px', marginBottom: '10px', alignItems: 'center' }}>
+                            <select 
+                                style={{ flex: 1.5, padding: '10px' }} 
+                                value={duty.grade} 
+                                onChange={e => updateStaffDuty(index, 'grade', e.target.value)}
+                            >
+                                <option value="Assistant Professor">Assistant Professor</option>
+                                <option value="Associate Professor">Associate Professor</option>
+                                <option value="Professor">Professor</option>
+                                <option value="Lab Assistant">Lab Assistant</option>
+                            </select>
+
+                            <select 
+                                style={{ flex: 1.5, padding: '10px' }} 
+                                value={duty.examType} 
+                                onChange={e => updateStaffDuty(index, 'examType', e.target.value)}
+                            >
+                                <option value="Internal Test 1">Internal Test 1</option>
+                                <option value="Internal Test 2">Internal Test 2</option>
+                                <option value="Regular Exam">Regular Exam</option>
+                            </select>
+
+                            <input 
+                                type="number" 
+                                placeholder="Duty Count" 
+                                style={{ flex: 1, padding: '10px' }} 
+                                value={duty.count} 
+                                onChange={e => updateStaffDuty(index, 'count', e.target.value)}
+                                required
+                            />
+                            {staffGradeDuty.length > 1 && (
+                                <button type="button" onClick={() => setStaffGradeDuty(staffGradeDuty.filter((_, i) => i !== index))} style={{background: '#ff4d4d', color: 'white', border: 'none', padding: '10px', borderRadius: '4px'}}>×</button>
+                            )}
+                        </div>
+                    ))}
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <button type="button" onClick={addStaffGrade} style={{ background: '#f1c40f', border: 'none', padding: '10px 15px', borderRadius: '4px', fontWeight: 'bold' }}>+ Add Requirement</button>
+                        <button type="submit" style={{ background: '#27ae60', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '4px', fontWeight: 'bold' }}>Save Duty Rules</button>
+                    </div>
+                </form>
+            </div>
+
+            <hr style={{ margin: '30px 0', border: '0.5px solid #eee' }} />
+
+            {/* --- SECTION 2: EXAM SCHEDULE MANAGEMENT --- */}
+            <h3>Create New Exam Schedule</h3>
             <form className="admin-form" onSubmit={handleExamSubmit}>
                 <div className="global-selection-box" style={{ background: '#f0f4f8', padding: '20px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #d1d9e6' }}>
                     <div className="form-row" style={{ display: 'flex', gap: '20px' }}>
@@ -96,14 +177,13 @@ const ExamSchedule = ({ departments, token, renderBranchOptions, renderSemesterO
                             <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Session</label>
                             <select style={{ width: '100%', padding: '8px' }} value={examBase.session} onChange={e => setExamBase({...examBase, session: e.target.value})} required>
                                 <option value="">Select Session</option>
-                                <option value="FN">FN (Forenoon)</option>
-                                <option value="AN">AN (Afternoon)</option>
+                                <option value="FN">FN</option>
+                                <option value="AN">AN</option>
                             </select>
                         </div>
                         <div style={{ flex: 1 }}>
                             <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Exam Type</label>
                             <select style={{ width: '100%', padding: '8px' }} value={examBase.examType} onChange={e => setExamBase({...examBase, examType: e.target.value})} required>
-                                <option value="">Select Exam Type</option>
                                 <option value="Internal Test 1">Internal Test 1</option>
                                 <option value="Internal Test 2">Internal Test 2</option>
                                 <option value="Regular Exam">Regular Exam</option>
@@ -123,85 +203,70 @@ const ExamSchedule = ({ departments, token, renderBranchOptions, renderSemesterO
                                 {renderBranchOptions(entry.dept)}
                             </select>
                             <select value={entry.sem} onChange={e => updateEntry(index, 'sem', e.target.value)} required>
+                                <option value="">Select Semester</option>
                                 {renderSemesterOptions(entry.dept, entry.branch)}
                             </select>
                             <input style={{ flex: 1, padding: '8px' }} type="text" value={entry.subject} onChange={e => updateEntry(index, 'subject', e.target.value)} placeholder="Subject Name" required />
                             {examEntries.length > 1 && (
-                                <button type="button" onClick={() => setExamEntries(examEntries.filter((_, i) => i !== index))} style={{background: '#ff4d4d', color: 'white', border: 'none', padding: '8px', cursor: 'pointer', borderRadius: '4px'}}>Remove</button>
+                                <button type="button" onClick={() => setExamEntries(examEntries.filter((_, i) => i !== index))} style={{background: '#ff4d4d', color: 'white', border: 'none', padding: '8px', borderRadius: '4px'}}>Remove</button>
                             )}
                         </div>
                     </div>
                 ))}
                 
                 <div style={{ marginTop: '15px' }}>
-                    <button type="button" onClick={addMoreExamEntry} style={{ padding: '8px 15px', cursor: 'pointer' }}>+ Add More Subjects</button>
-                    <button type="submit" className="btn-primary" style={{ marginLeft: '10px', padding: '8px 15px', cursor: 'pointer' }}>Save All Schedules</button>
+                    <button type="button" onClick={addMoreExamEntry} style={{ padding: '8px 15px' }}>+ Add Subject</button>
+                    <button type="submit" className="btn-primary" style={{ marginLeft: '10px', padding: '8px 15px' }}>Save Schedule</button>
                 </div>
             </form>
 
             <hr style={{ margin: '40px 0', border: '0.5px solid #eee' }} />
 
-            {/* --- VIEW SECTION --- */}
+            {/* --- SECTION 3: DISPLAY SAVED DATA --- */}
             <div className="display-section">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '20px' }}>
-                    <div>
-                        <h3 style={{ margin: '0 0 5px 0' }}>Scheduled Exams (Database)</h3>
-                        <p style={{ fontSize: '13px', color: '#666', margin: 0 }}>Filter results by date or department</p>
-                    </div>
-                    
-                    <div style={{ display: 'flex', gap: '15px', background: '#eef2f7', padding: '15px', borderRadius: '8px', alignItems: 'flex-end' }}>
-                        <div>
-                            <label style={{ fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Filter by Date</label>
-                            <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} style={{ padding: '6px', border: '1px solid #ccc', borderRadius: '4px' }} />
-                        </div>
-                        <div>
-                            <label style={{ fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Filter by Dept</label>
-                            <select value={filterDept} onChange={(e) => setFilterDept(e.target.value)} style={{ padding: '6px', border: '1px solid #ccc', borderRadius: '4px', background: 'white' }}>
-                                <option value="">All Departments</option>
-                                {departments.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
-                            </select>
-                        </div>
-                        <button onClick={() => { setFilterDate(''); setFilterDept(''); }} style={{ padding: '7px 12px', fontSize: '12px', cursor: 'pointer', background: '#95a5a6', color: 'white', border: 'none', borderRadius: '4px' }}>Reset</button>
+                    <h3 style={{ margin: 0 }}>Saved Exam Schedules</h3>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} style={{ padding: '6px' }} />
+                        <select value={filterDept} onChange={(e) => setFilterDept(e.target.value)} style={{ padding: '6px' }}>
+                            <option value="">All Departments</option>
+                            {departments.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
+                        </select>
                     </div>
                 </div>
 
-                {loading ? (
-                    <p>Loading schedules...</p>
-                ) : filteredSchedules.length === 0 ? (
-                    <p style={{ textAlign: 'center', padding: '20px', background: '#f9f9f9', borderRadius: '8px' }}>No exams found matching your filters.</p>
-                ) : (
-                    <div className="table-responsive" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.1)', borderRadius: '8px', overflow: 'hidden' }}>
+                {loading ? <p>Loading...</p> : (
+                    <div style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.1)', borderRadius: '8px', overflow: 'hidden' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white' }}>
                             <thead>
                                 <tr style={{ background: '#34495e', color: 'white', textAlign: 'left' }}>
-                                    <th style={{ padding: '12px', border: '1px solid #eee' }}>Date & Session</th>
-                                    <th style={{ padding: '12px', border: '1px solid #eee' }}>Exam Category</th>
-                                    <th style={{ padding: '12px', border: '1px solid #eee' }}>Courses & Subjects</th>
-                                    <th style={{ padding: '12px', border: '1px solid #eee', textAlign: 'center' }}>Action</th>
+                                    <th style={{ padding: '12px' }}>Date / Day</th>
+                                    <th style={{ padding: '12px' }}>Type / Session</th>
+                                    <th style={{ padding: '12px' }}>Course & Subject</th>
+                                    <th style={{ padding: '12px', textAlign: 'center' }}>Action</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {filteredSchedules.map((item, idx) => (
-                                    <tr key={item.id || idx} style={{ background: idx % 2 === 0 ? '#fff' : '#fcfcfc' }}>
-                                        <td style={{ padding: '12px', border: '1px solid #eee' }}>
-                                            <strong>{item.date}</strong> <br />
-                                            <small style={{ color: '#555' }}>{item.session || item.time_slot?.split('-')[0]}</small>
+                                    <tr key={item.id || idx} style={{ borderBottom: '1px solid #eee' }}>
+                                        <td style={{ padding: '12px' }}>
+                                            <strong>{item.date}</strong><br/>
+                                            <small style={{ color: '#2980b9' }}>{getDayName(item.date)}</small>
                                         </td>
-                                        <td style={{ padding: '12px', border: '1px solid #eee' }}>
-                                            <span style={{ fontSize: '11px', background: '#dff9fb', color: '#0984e3', padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
-                                                {item.time_slot}
-                                            </span>
+                                        <td style={{ padding: '12px' }}>
+                                            <span style={{ fontSize: '11px', background: '#e8f4fd', padding: '3px 7px', borderRadius: '4px' }}>
+                                                {item.exam_type || 'N/A'}
+                                            </span><br/>
+                                            <small>{item.session}</small>
                                         </td>
-                                        <td style={{ padding: '12px', border: '1px solid #eee' }}>
-                                            <div style={{ fontWeight: 'bold', color: '#2c3e50' }}>{item.course_name}</div>
-                                            <div style={{ fontSize: '13px', color: '#7f8c8d' }}>{item.subject}</div>
+                                        <td style={{ padding: '12px' }}>
+                                            <strong>{item.course_name}</strong><br/>
+                                            <span style={{ color: '#666' }}>{item.subject}</span>
                                         </td>
-                                        <td style={{ padding: '12px', border: '1px solid #eee', textAlign: 'center' }}>
+                                        <td style={{ padding: '12px', textAlign: 'center' }}>
                                             <button 
-                                                onClick={() => {
-                                                    if(window.confirm("Are you sure?")) handleDeleteSchedule(item.id);
-                                                }}
-                                                style={{ padding: '6px 12px', background: '#ffefef', color: '#e74c3c', border: '1px solid #e74c3c', borderRadius: '4px', cursor: 'pointer' }}
+                                                onClick={() => window.confirm("Delete?") && handleDeleteSchedule(item.id)}
+                                                style={{ background: 'none', border: '1px solid #e74c3c', color: '#e74c3c', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}
                                             >
                                                 Delete
                                             </button>

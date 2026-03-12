@@ -169,7 +169,14 @@ const ClassroomSetup = ({ roomList, token, fetchData }) => {
             <tbody>
                 {filteredRooms.length > 0 ? filteredRooms.map((room) => (
                     <tr key={room.id} style={{ borderBottom: '1px solid #f1f1f1' }} className="table-row-hover">
-                        <td style={{ padding: '12px 15px' }}>{room.date || '---'}</td>
+                        <td style={{ padding: '12px 15px' }}>
+                            <div style={{ fontWeight: 'bold' }}>{room.date || '---'}</div>
+                                {room.date && (
+                                 <div style={{ fontSize: '11px', color: '#7f8c8d', textTransform: 'uppercase' }}>
+                                     {new Date(room.date).toLocaleDateString('en-US', { weekday: 'long' })}
+                                 </div>
+                             )}
+                        </td>
                         <td style={{ padding: '12px 15px' }}>
                              <span style={{ background: '#e3f2fd', color: '#1976d2', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold' }}>
                                 {room.block}

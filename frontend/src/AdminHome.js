@@ -14,6 +14,8 @@ const AdminHome = () => {
     const [activeTab, setActiveTab] = useState('staff');
     const [staffList, setStaffList] = useState([]);
     const [roomList, setRoomList] = useState([]);
+    const token = localStorage.getItem('token');
+
     const [departments, setDepartments] = useState([
         { 
             name: 'B.Tech', 
@@ -32,58 +34,40 @@ const AdminHome = () => {
         }
     ]);
 
-    const token = localStorage.getItem('token');
+    // FIXED SYNTAX: Removed the extra ")" and used a direct window redirect
+    const handleLogout = useCallback(() => {
+        localStorage.clear(); 
+        window.location.href = '/login'; 
+    }, []);
 
     const fetchData = useCallback(async () => {
         if (!token) return;
         try {
-            const staffRes = await axios.get('http://127.0.0.1:8000/api/admin/get-all-staff/', {
-                headers: { 'Authorization': `Token ${token}` }
-            });
+            const config = { headers: { 'Authorization': `Token ${token}` } };
+            const staffRes = await axios.get('http://127.0.0.1:8000/api/admin/get-all-staff/', config);
             setStaffList(staffRes.data);
-            const roomRes = await axios.get('http://127.0.0.1:8000/api/admin/get-rooms/', {
-                headers: { 'Authorization': `Token ${token}` }
-            });
-            setRoomList(roomRes.data); 
+            const roomRes = await axios.get('http://127.0.0.1:8000/api/admin/get-rooms/', config);
+            setRoomList(roomRes.data);
         } catch (err) {
-            console.error("Error fetching data", err);
+            // If the token is dead, log out automatically
+            if (err.response?.status === 401) handleLogout();
         }
-    }, [token]);
+    }, [token, handleLogout]);
 
     useEffect(() => {
-        const isSuper = localStorage.getItem('is_superuser');   
-        if (isSuper !== 'true') {
-            alert("Unauthorized access!");
-            window.location.href = '/login';
-            return;
-        }
         fetchData();
     }, [fetchData]);
 
-    // --- LOGOUT HANDLER ---
-    const handleLogout = () => {
-        if (window.confirm("Are you sure you want to logout?")) {
-            localStorage.clear();
-            window.location.href = '/login';
-        }
-    };
-
-    // Common Helpers shared by components
+    // Dropdown Helpers
     const renderBranchOptions = (deptName) => {
         const dept = departments.find(d => d.name === deptName);
-        if (!dept) return <option value="">Select Dept First</option>;
-        return (
-            <>
-                <option value="">Select Branch</option>
-                {dept.branches.map(b => <option key={b.name} value={b.name}>{b.name}</option>)}
-            </>
-        );
+        return dept ? dept.branches.map(b => <option key={b.name} value={b.name}>{b.name}</option>) : <option>Select Dept</option>;
     };
 
     const renderSemesterOptions = (deptName, branchName) => {
         const dept = departments.find(d => d.name === deptName);
         const branch = dept?.branches.find(b => b.name === branchName);
-        if (!branch) return <option value="">Select Branch First</option>;
+        if (!branch) return <option>Select Branch</option>;
         const sems = [];
         for (let i = 1; i <= branch.semCount; i++) sems.push(`S${i}`);
         return sems.map(s => <option key={s} value={s}>{s}</option>);
@@ -93,7 +77,7 @@ const AdminHome = () => {
         <div className="admin-dashboard">
             <nav className="admin-sidebar" style={{ display: 'flex', flexDirection: 'column' }}>
                 <div style={{ flex: 1 }}>
-                    <h2>Admin Portal</h2>
+                    <h2 style={{ padding: '20px' }}>Admin Portal</h2>
                     <button className={activeTab === 'staff' ? 'active' : ''} onClick={() => setActiveTab('staff')}>Staff Management</button>
                     <button className={activeTab === 'view-details' ? 'active' : ''} onClick={() => setActiveTab('view-details')}>Staff Details View</button>
                     <button className={activeTab === 'timetable' ? 'active' : ''} onClick={() => setActiveTab('timetable')}>Staff Timetable</button>
@@ -102,20 +86,10 @@ const AdminHome = () => {
                     <button className={activeTab === 'settings' ? 'active' : ''} onClick={() => setActiveTab('settings')}>Dept Settings</button>
                 </div>
 
-                {/* --- LOGOUT BUTTON AT BOTTOM --- */}
                 <div style={{ padding: '20px', borderTop: '1px solid #444' }}>
                     <button 
                         onClick={handleLogout} 
-                        style={{ 
-                            width: '100%', 
-                            padding: '12px', 
-                            background: '#ff4d4d', 
-                            color: 'white', 
-                            border: 'none', 
-                            borderRadius: '5px', 
-                            cursor: 'pointer',
-                            fontWeight: 'bold'
-                        }}
+                        style={{ width: '100%', padding: '12px', background: '#ff4d4d', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}
                     >
                         Logout
                     </button>
