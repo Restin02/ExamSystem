@@ -16,14 +16,12 @@ const StaffDashboard = () => {
             return;
         }
         try {
-            // UPDATED: Removed /user/ to match your current Django backend/urls.py
             const res = await axios.get('http://127.0.0.1:8000/api/staff/my-dashboard/', {
                 headers: { Authorization: `Token ${token}` }
             });
             setData(res.data);
         } catch (err) {
             console.error("Fetch Error:", err.response?.data);
-            // If token is invalid, log them out
             if (err.response?.status === 401) handleLogout();
         } finally {
             setLoading(false);
@@ -48,16 +46,15 @@ const StaffDashboard = () => {
 
         try {
             setLoading(true);
-            // Ensure this matches the /api/ prefix
             await axios.post('http://127.0.0.1:8000/api/staff/upload-image/', formData, {
                 headers: { 
                     Authorization: `Token ${token}`,
                     'Content-Type': 'multipart/form-data'
                 }
             });
-            await fetchMyData(); // Refresh to show new image
+            await fetchMyData(); 
         } catch (err) {
-            alert("Upload failed. Ensure 'Pillow' is installed: pip install Pillow");
+            alert("Upload failed.");
         } finally {
             setLoading(false);
         }
@@ -75,7 +72,7 @@ const StaffDashboard = () => {
 
     if (!data || !data.profile) {
         return (
-            <div className="error-container" style={{ textAlign: 'center', marginTop: '50px' }}>
+            <div className="error-container">
                 <p>Unable to load profile data. Your session may have expired.</p>
                 <button className="btn-primary" onClick={handleLogout}>Back to Login</button>
             </div>
@@ -84,75 +81,87 @@ const StaffDashboard = () => {
 
     return (
         <div className="staff-dashboard-root">
-            {/* SIDE NAVIGATION */}
+            {/* Side Navigation */}
             <div className={`side-nav ${menuOpen ? 'open' : ''}`}>
                 <button className="close-btn" onClick={() => setMenuOpen(false)}>×</button>
-                <div className="nav-header" style={{ padding: '20px', color: '#fff', borderBottom: '1px solid #444' }}>
+                <div className="nav-header">
                     <h3>Menu</h3>
                 </div>
                 <div className="nav-links">
-                    <button 
-                        className={activeTab === 'dashboard' ? 'active-link' : ''} 
-                        onClick={() => { setActiveTab('dashboard'); setMenuOpen(false); }}
-                    >
-                        🏠 View My Schedule
-                    </button>
-                    <button 
-                        className={activeTab === 'profile' ? 'active-link' : ''} 
-                        onClick={() => { setActiveTab('profile'); setMenuOpen(false); }}
-                    >
-                        ⚙️ Profile Settings
-                    </button>
-                    <button onClick={() => alert("Loading Exam Duty Schedule...")}>📋 Exam Duty Schedule</button>
-                    <hr style={{ border: '0.5px solid #444', width: '100%', margin: '15px 0' }} />
-                    <button className="logout-btn" onClick={handleLogout} style={{ color: '#ff4d4d' }}>🚪 Logout</button>
+                    <button className={activeTab === 'dashboard' ? 'active-link' : ''} onClick={() => { setActiveTab('dashboard'); setMenuOpen(false); }}>🏠 My Schedule</button>
+                    <button className={activeTab === 'profile' ? 'active-link' : ''} onClick={() => { setActiveTab('profile'); setMenuOpen(false); }}>⚙️ Profile Settings</button>
+                    <button onClick={() => alert("Exam Schedule Feature Coming Soon")}>📋 Exam Duty</button>
+                    <hr className="nav-divider" />
+                    <button className="logout-btn" onClick={handleLogout}>🚪 Logout</button>
                 </div>
             </div>
 
             <div className="staff-container">
                 <div className="top-bar">
                     <button className="menu-trigger" onClick={() => setMenuOpen(true)}>☰ Menu</button>
-                    <h2 style={{ fontSize: '1.2rem', margin: 0 }}>
-                        {activeTab === 'dashboard' ? 'Dashboard' : 'Profile Settings'}
-                    </h2>
+                    <h2>{activeTab === 'dashboard' ? 'Staff Dashboard' : 'Profile Settings'}</h2>
                 </div>
 
                 <header className="staff-header">
-                    <div className="profile-section">
-                        <div className="image-container">
-                            <img 
-                                src={data.profile.image_url ? `http://127.0.0.1:8000${data.profile.image_url}` : 'https://via.placeholder.com/150'} 
-                                alt="Profile" 
-                                className="profile-img" 
-                                onError={(e) => { e.target.src = 'https://via.placeholder.com/150'; }}
-                            />
-                            <label className="upload-label">
-                                ✎ Change
+                    <div className="profile-section-horizontal">
+                        <div className="profile-image-wrapper">
+                            <div className="image-container">
+                                <img 
+                                    src={data.profile.image_url || 'https://via.placeholder.com/150'} 
+                                    alt="Profile" 
+                                    className="profile-img" 
+                                    onError={(e) => { e.target.src = 'https://via.placeholder.com/150'; }}
+                                />
+                            </div>
+                            <label className="upload-button-outside">
+                                ✎ Update Photo
                                 <input type="file" onChange={handleImageUpload} hidden accept="image/*" />
                             </label>
                         </div>
 
-                        <div className="profile-info">
-                            {/* Displaying Title + Name correctly */}
-                            <h1>{data.profile.title || ''} {data.profile.name}</h1>
-                            <div className="meta-grid">
-                                <span><strong>Grade:</strong> {data.profile.grade || 'N/A'}</span> 
-                                <span><strong>Dept:</strong> {data.profile.department || 'N/A'}</span>
-                                <span><strong>Branch:</strong> {data.profile.branch || 'N/A'}</span>
-                                <span><strong>Email:</strong> {data.profile.email || 'N/A'}</span>
-                                <span><strong>Status:</strong> <span className="status-pill">Active</span></span>
+                        <div className="profile-main-content">
+                            <div className="profile-identity">
+                                <div className="name-status">
+                                    <h1>{data.profile.title || ''} {data.profile.name}</h1>
+                                    <span className="status-pill">Active</span>
+                                </div>
+                                
+                                <div className="meta-grid-horizontal">
+                                    <div className="meta-item"><strong>Grade:</strong> {data.profile.grade || 'N/A'}</div>
+                                    <div className="meta-item"><strong>Dept:</strong> {data.profile.department || 'N/A'}</div>
+                                    <div className="meta-item"><strong>Branch:</strong> {data.profile.branch || 'N/A'}</div>
+                                    <div className="meta-item"><strong>Phonr:</strong> {data.profile.phone_number || 'N/A'}</div>
+                                    <div className="meta-item"><strong>Email:</strong> {data.profile.email || 'N/A'}</div>
+                                </div>
+                            </div>
+
+                            <div className="duty-status-grid-horizontal">
+                                <div className="duty-item">
+                                    <small>Internal 1</small>
+                                    <strong>{data.profile.internal1_duty_count || 0}</strong>
+                                </div>
+                                <div className="duty-item">
+                                    <small>Internal 2</small>
+                                    <strong>{data.profile.internal2_duty_count || 0}</strong>
+                                </div>
+                                <div className="duty-item">
+                                    <small>Regular</small>
+                                    <strong>{data.profile.regular_duty_count || 0}</strong>
+                                </div>
+                                <div className="duty-item">
+                                    <small>Supply</small>
+                                    <strong>{data.profile.supply_duty_count || 0}</strong>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </header>
 
-                {/* CONTENT AREA */}
                 {activeTab === 'dashboard' ? (
-                    <>
+                    <div className="dashboard-content">
                         <section className="timetable-card">
                             <div className="card-header">
                                 <h3>Weekly Workload Schedule</h3>
-                                <p>Mon - Fri | Periods 1 - 6</p>
                             </div>
                             <div className="table-responsive">
                                 <table className="staff-view-table">
@@ -163,7 +172,7 @@ const StaffDashboard = () => {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {data.timetable && data.timetable.map((row, i) => (
+                                        {data.timetable?.map((row, i) => (
                                             <tr key={i}>
                                                 <td className="day-col">{row.day}</td>
                                                 {row.periods.map((p, j) => (
@@ -178,42 +187,20 @@ const StaffDashboard = () => {
                             </div>
                         </section>
 
-                        <section className="timetable-card" style={{ marginTop: '30px', borderTop: '4px solid #27ae60' }}>
+                        <section className="timetable-card free-hours-section">
                             <div className="card-header">
-                                <h3>My Free Hour Summary</h3>
-                                <p>Available time slots for the current week</p>
+                                <h3>Available Periods</h3>
                             </div>
-                            <div className="table-responsive" style={{ padding: '0 20px 20px' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
-                                    <thead>
-                                        <tr style={{ background: '#f8f9fa' }}>
-                                            <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #eee' }}>Day</th>
-                                            <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #eee' }}>Available Periods</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {data.timetable && data.timetable.map((row, i) => (
-                                            <tr key={i} style={{ borderBottom: '1px solid #f1f1f1' }}>
-                                                <td style={{ padding: '12px', fontWeight: 'bold', color: '#2c3e50', width: '150px' }}>{row.day}</td>
-                                                <td style={{ padding: '12px' }}>
-                                                    <span className="free-hour-pill" style={{ 
-                                                        color: '#27ae60', 
-                                                        fontWeight: '600', 
-                                                        background: '#e8f5e9', 
-                                                        padding: '5px 12px', 
-                                                        borderRadius: '20px', 
-                                                        fontSize: '0.85rem'
-                                                    }}>
-                                                        {getFreePeriods(row.periods)}
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                            <div className="free-hours-grid">
+                                {data.timetable?.map((row, i) => (
+                                    <div key={i} className="free-hour-row">
+                                        <span className="row-day">{row.day}</span>
+                                        <span className="free-hour-pill">{getFreePeriods(row.periods)}</span>
+                                    </div>
+                                ))}
                             </div>
                         </section>
-                    </>
+                    </div>
                 ) : (
                     <ProfileSettings 
                         token={token} 

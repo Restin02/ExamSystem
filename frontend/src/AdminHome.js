@@ -9,9 +9,10 @@ import StaffTimetable from './components/StaffTimetable';
 import ClassroomSetup from './components/ClassroomSetup';
 import ExamSchedule from './components/ExamSchedule';
 import DeptSettings from './components/DeptSettings';
+import StaffDutyAllocation from './components/StaffDutyAllocation';
 
 const AdminHome = () => {
-    const [activeTab, setActiveTab] = useState('staff');
+    const [activeTab, setActiveTab] = useState('staff','dept-settings');
     const [staffList, setStaffList] = useState([]);
     const [roomList, setRoomList] = useState([]);
     const token = localStorage.getItem('token');
@@ -83,6 +84,7 @@ const AdminHome = () => {
                     <button className={activeTab === 'timetable' ? 'active' : ''} onClick={() => setActiveTab('timetable')}>Staff Timetable</button>
                     <button className={activeTab === 'room' ? 'active' : ''} onClick={() => setActiveTab('room')}>Classroom Setup</button>
                     <button className={activeTab === 'exam' ? 'active' : ''} onClick={() => setActiveTab('exam')}>Exam Schedule</button>
+                    <button className={activeTab === 'duty-allocation' ? 'active' : ''} onClick={() => setActiveTab('duty-allocation')}>Staff Exam Duty Allocation</button>
                     <button className={activeTab === 'settings' ? 'active' : ''} onClick={() => setActiveTab('settings')}>Dept Settings</button>
                 </div>
 
@@ -102,6 +104,7 @@ const AdminHome = () => {
                 {activeTab === 'timetable' && <StaffTimetable staffList={staffList} departments={departments} token={token} />}
                 {activeTab === 'room' && <ClassroomSetup roomList={roomList} token={token} fetchData={fetchData} />}
                 {activeTab === 'exam' && <ExamSchedule departments={departments} token={token} renderBranchOptions={renderBranchOptions} renderSemesterOptions={renderSemesterOptions} />}
+                {activeTab === 'duty-allocation' && (<StaffDutyAllocation departments={departments} />)}
                 {activeTab === 'settings' && <DeptSettings departments={departments} setDepartments={setDepartments} />}
             </div>
         </div>

@@ -31,6 +31,7 @@ urlpatterns = [
     
     # MOVED AND UPDATED THIS LINE:
     path('admin/update-staff-duty-counts/', views.update_staff_duty_counts, name='update_staff_duty_counts'),
+    path('admin/save-structure/', views.save_structure, name='save-structure'),
 
     # --- 3. Staff / User Actions ---
     path('profile/', ProfileView.as_view(), name='get_profile'),
@@ -43,4 +44,5 @@ urlpatterns = [
     # --- 4. Logic & Allocation ---
     path('allocate/', views.allocate_duties, name='allocate_duties'),
     path('duties/', views.get_duties, name='get_duties'),
+    path('admin/get-allocated-duties/', views.get_allocated_duties, name='get-allocated-duties'),
 ]

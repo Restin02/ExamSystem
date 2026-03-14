@@ -116,7 +116,6 @@ const ExamSchedule = ({ departments, token, renderBranchOptions, renderSemesterO
             {/* --- SECTION 1: STAFF DUTY REQUIREMENTS (WITH EXAM TYPE) --- */}
             <div className="staff-duty-section" style={{ background: '#fff9e6', padding: '20px', borderRadius: '8px', marginBottom: '30px', border: '1px solid #ffeeba' }}>
                 <h3 style={{ marginTop: 0, color: '#856404' }}>Staff Duty Settings</h3>
-                <p style={{ fontSize: '13px', color: '#666' }}>Set duty counts per grade for specific exam types (e.g., Assistant Prof - Internal: 2, Regular: 3).</p>
                 
                 <form onSubmit={handleStaffDutyUpdate}>
                     {staffGradeDuty.map((duty, index) => (

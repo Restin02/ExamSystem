@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 
 const DeptSettings = ({ departments, setDepartments }) => {
     const [newDeptName, setNewDeptName] = useState('');
@@ -6,19 +7,72 @@ const DeptSettings = ({ departments, setDepartments }) => {
     const [newBranchSemCount, setNewBranchSemCount] = useState(8);
     const [selectedDeptForBranch, setSelectedDeptForBranch] = useState('');
 
+    // --- 1. LOAD DATA ON MOUNT ---
+    useEffect(() => {
+        const fetchStructure = async () => {
+            const token = localStorage.getItem('token');
+            if (!token) return;
+
+            try {
+                const res = await axios.get('http://127.0.0.1:8000/api/admin/save-structure/', {
+                    headers: { 'Authorization': `Token ${token}` }
+                });
+                if (res.data && Array.isArray(res.data.structure)) {
+                    setDepartments(res.data.structure);
+                }
+            } catch (err) {
+                console.error("Failed to fetch structure:", err);
+                // Fallback to local backup if server is unreachable
+                const backup = localStorage.getItem('dept_structure_backup');
+                if (backup) setDepartments(JSON.parse(backup));
+            }
+        };
+        fetchStructure();
+    }, [setDepartments]); // useEffect is now used, clearing the ESLint warning
+
+    // --- 2. PERSISTENCE LOGIC ---
+    const saveToBackend = async (updatedData) => {
+        const token = localStorage.getItem('token');
+        
+        if (!token) {
+            localStorage.setItem('dept_structure_backup', JSON.stringify(updatedData));
+            return;
+        }
+
+        try {
+            await axios.post('http://127.0.0.1:8000/api/admin/save-structure/', 
+                { structure: updatedData },
+                { 
+                    headers: { 
+                        'Authorization': `Token ${token}`,
+                        'Content-Type': 'application/json'
+                    } 
+                }
+            );
+            console.log("✅ Sync complete");
+        } catch (err) {
+            console.error("❌ Sync failed:", err.response?.data || err.message);
+            localStorage.setItem('dept_structure_backup', JSON.stringify(updatedData));
+        }
+    };
+
     const handleAddDept = () => {
         if (!newDeptName.trim()) return;
-        // Check if department already exists to prevent duplicates
         if (departments.some(d => d.name === newDeptName)) {
             alert("Department already exists");
             return;
         }
-        setDepartments([...departments, { name: newDeptName, branches: [] }]);
+        const updated = [...departments, { name: newDeptName, branches: [] }];
+        setDepartments(updated);
+        saveToBackend(updated); 
         setNewDeptName('');
     };
 
     const handleRemoveDept = (deptName) => {
-        setDepartments(departments.filter(d => d.name !== deptName));
+        if (!window.confirm(`Are you sure you want to delete ${deptName}?`)) return;
+        const updated = departments.filter(d => d.name !== deptName);
+        setDepartments(updated);
+        saveToBackend(updated);
     };
 
     const handleAddBranch = () => {
@@ -26,9 +80,8 @@ const DeptSettings = ({ departments, setDepartments }) => {
         
         const updated = departments.map(d => {
             if (d.name === selectedDeptForBranch) {
-                // Prevent duplicate branches in the same department
                 if (d.branches.some(b => b.name === newBranchName)) {
-                    alert("Branch already exists in this department");
+                    alert("Branch already exists");
                     return d;
                 }
                 return { 
@@ -39,6 +92,7 @@ const DeptSettings = ({ departments, setDepartments }) => {
             return d;
         });
         setDepartments(updated);
+        saveToBackend(updated); 
         setNewBranchName('');
         setNewBranchSemCount(8);
     };
@@ -51,19 +105,19 @@ const DeptSettings = ({ departments, setDepartments }) => {
             return d;
         });
         setDepartments(updated);
+        saveToBackend(updated);
     };
 
     return (
         <div className="tab-section">
             <h3>Structure Management</h3>
             
-            {/* Form to Add Department */}
             <div className="admin-form" style={{ marginBottom: '20px', padding: '15px', border: '1px solid #eee' }}>
                 <h4>Add New Department</h4>
                 <div className="form-row" style={{ display: 'flex', gap: '10px' }}>
                     <input 
                         type="text" 
-                        placeholder="Department Name (e.g., Engineering)" 
+                        placeholder="e.g., Computer Science" 
                         value={newDeptName} 
                         onChange={e => setNewDeptName(e.target.value)} 
                     />
@@ -71,7 +125,6 @@ const DeptSettings = ({ departments, setDepartments }) => {
                 </div>
             </div>
 
-            {/* Form to Add Branch to a Department */}
             <div className="admin-form" style={{ marginBottom: '20px', padding: '15px', border: '1px solid #eee' }}>
                 <h4>Add New Branch</h4>
                 <div className="form-row" style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
@@ -92,8 +145,7 @@ const DeptSettings = ({ departments, setDepartments }) => {
                     />
                     <input 
                         type="number" 
-                        placeholder="Sems" 
-                        style={{ width: '60px' }}
+                        style={{ width: '70px' }}
                         value={newBranchSemCount} 
                         onChange={e => setNewBranchSemCount(e.target.value)} 
                     />
@@ -103,7 +155,6 @@ const DeptSettings = ({ departments, setDepartments }) => {
 
             <hr style={{ margin: '20px 0' }} />
 
-            {/* Existing Structure View */}
             <div className="tab-section">
                 <h4>Existing Structure</h4>
                 <div className="dept-list">
@@ -111,7 +162,7 @@ const DeptSettings = ({ departments, setDepartments }) => {
                     {departments.map(dept => (
                         <div key={dept.name} className="dept-card" style={{ border: '1px solid #ddd', padding: '15px', borderRadius: '8px', marginBottom: '15px', background: '#fff' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                <strong style={{ fontSize: '1.1rem', color: '#2c3e50' }}>{dept.name}</strong>
+                                <strong style={{ fontSize: '1.1rem' }}>{dept.name}</strong>
                                 <button 
                                     className="btn-secondary" 
                                     style={{ backgroundColor: '#ff4d4d', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }} 

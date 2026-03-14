@@ -10,8 +10,9 @@ class StaffManagementSerializer(serializers.ModelSerializer):
     class Meta:
         model = StaffManagement
         fields = [
-            'id', 'staff_id', 'username', 'name', 'department', 
-            'branch', 'phone_number', 'grade', 'profile_image', 'duty_count'
+            'id', 'user', 'staff_id', 'grade', 'department', 'branch', 
+            'internal1_duty_count', 'internal2_duty_count', 
+            'regular_duty_count', 'supply_duty_count'
         ]
 
 # 2. Classroom Setup Serializer

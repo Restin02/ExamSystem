@@ -1,86 +1,144 @@
-/* The background of the whole page */
-.login-container {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100vh;
-    background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); /* Deep Blue Gradient */
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+:root {
+    --primary-blue: #2563eb;
+    --primary-hover: #1d4ed8;
+    --bg-light: #f8fafc;
+    --text-dark: #1e293b;
+    --border-gray: #e2e8f0;
 }
 
-/* The white box in the center */
+.login-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+    font-family: 'Inter', sans-serif;
+}
+
 .login-card {
     background: white;
-    padding: 40px;
+    padding: 2.5rem;
     border-radius: 12px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
     width: 100%;
     max-width: 400px;
+}
+
+.login-header {
     text-align: center;
+    margin-bottom: 2rem;
 }
 
-.login-card h2 {
-    color: #1e3a8a;
-    margin-bottom: 10px;
+.login-header h2 {
+    color: var(--text-dark);
+    font-size: 1.5rem;
     font-weight: 700;
+    margin-bottom: 0.5rem;
 }
 
-.login-card p {
+.login-header p {
     color: #64748b;
-    margin-bottom: 30px;
-    font-size: 14px;
+    font-size: 0.875rem;
 }
 
-/* Designing the input boxes */
-.login-card input {
-    width: 100%;
-    padding: 12px;
-    margin: 10px 0;
-    border: 1px solid #cbd5e1;
+/* Role Toggle Styling */
+.role-toggle {
+    display: flex;
+    background: #f1f5f9;
+    padding: 4px;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+}
+
+.role-option {
+    flex: 1;
+    text-align: center;
+    padding: 8px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 600;
     border-radius: 6px;
-    box-sizing: border-box; /* Keeps padding inside the width */
-    font-size: 16px;
+    transition: all 0.2s;
+    color: #64748b;
 }
 
-.login-card input:focus {
-    outline: none;
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+.role-option.active {
+    background: white;
+    color: var(--primary-blue);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
 
-/* The Login Button */
-.login-button {
+/* Input Styling */
+.input-group {
+    margin-bottom: 1.25rem;
+}
+
+.input-group label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-dark);
+    margin-bottom: 0.5rem;
+}
+
+.input-group input {
     width: 100%;
-    padding: 12px;
-    background-color: #1e3a8a;
+    padding: 0.75rem;
+    border: 1.5px solid var(--border-gray);
+    border-radius: 8px;
+    font-size: 1rem;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+}
+
+.input-group input:focus {
+    outline: none;
+    border-color: var(--primary-blue);
+}
+
+/* Password Eye Button */
+.password-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.eye-btn {
+    position: absolute;
+    right: 12px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #94a3b8;
+    padding: 0;
+    display: flex;
+    align-items: center;
+}
+
+.eye-btn svg {
+    width: 20px;
+    height: 20px;
+}
+
+.eye-btn:hover {
+    color: var(--text-dark);
+}
+
+/* Submit Button */
+.login-submit-btn {
+    width: 100%;
+    padding: 0.75rem;
+    background: var(--primary-blue);
     color: white;
     border: none;
-    border-radius: 6px;
-    font-size: 16px;
+    border-radius: 8px;
+    font-size: 1rem;
     font-weight: 600;
     cursor: pointer;
-    transition: background 0.3s ease;
-    margin-top: 10px;
+    transition: background 0.2s;
+    margin-top: 1rem;
 }
 
-.login-button:hover {
-    background-color: #1e40af;
-}
-
-.login-footer {
-  margin-top: 20px;
-  text-align: center;
-  font-size: 0.9rem;
-  color: #64748b;
-}
-
-.login-footer a {
-  color: #1e3a8a;
-  text-decoration: none;
-  font-weight: bold;
-}
-
-.login-footer a:hover {
-  text-decoration: underline;
-  color: #3b82f6;
+.login-submit-btn:hover {
+    background: var(--primary-hover);
 }

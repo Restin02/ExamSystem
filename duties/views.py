@@ -1,22 +1,83 @@
+import os
+import logging
 from django.contrib.auth.models import User
 from django.http import HttpResponse
+from django.db import transaction
+from django.conf import settings
+
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.authtoken.models import Token
-from django.db import transaction
 from rest_framework.views import APIView
-import logging
 
-# Using your specific Keyword-Aligned Models
-from .models import StaffManagement, ExamSchedule, ClassroomSetup, DutyAssignment, StaffDutyRequirement
+# Import all models including Department and Branch
+from .models import (
+    StaffManagement, StaffAvailability, ExamSchedule, ClassroomSetup, 
+    DutyAssignment, StaffDutyRequirement, Department, Branch
+)
 from .serializers import DutyAssignmentSerializer
 
 logger = logging.getLogger(__name__)
 
-# --- 1. STAFF MANAGEMENT ---
+# --- 1. DEPARTMENT & BRANCH STRUCTURE ---
+
+@api_view(['GET', 'POST']) # Change this line to allow both
+@permission_classes([IsAdminUser])
+def save_structure(request):
+    # 1. Handle Loading (GET)
+    if request.method == 'GET':
+        try:
+            structure = []
+            # Fetch all departments and their related branches
+            departments = Department.objects.all().prefetch_related('branches')
+            
+            for dept in departments:
+                branches = [
+                    {'name': b.name, 'semCount': b.sem_count} 
+                    for b in dept.branches.all()
+                ]
+                structure.append({'name': dept.name, 'branches': branches})
+            
+            return Response({"structure": structure}, status=200)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+
+    # 2. Handle Saving (POST)
+    if request.method == 'POST':
+        structure_data = request.data.get('structure', [])
+        try:
+            with transaction.atomic():
+                # Get list of department names from the request
+                incoming_dept_names = [dept_data['name'] for dept_data in structure_data]
+                
+                # Delete departments not in the incoming list
+                Department.objects.exclude(name__in=incoming_dept_names).delete()
+                
+                for dept_data in structure_data:
+                    # Get or create the department
+                    dept, _ = Department.objects.get_or_create(name=dept_data['name'])
+                    
+                    # Get list of branch names for this specific department
+                    incoming_branch_names = [b['name'] for b in dept_data.get('branches', [])]
+                    
+                    # Delete branches for this department not in the incoming list
+                    Branch.objects.filter(department=dept).exclude(name__in=incoming_branch_names).delete()
+                    
+                    for branch_data in dept_data.get('branches', []):
+                        # Update or create the branch
+                        Branch.objects.update_or_create(
+                            department=dept,
+                            name=branch_data['name'],
+                            defaults={'sem_count': int(branch_data.get('semCount', 8))}
+                        )
+            return Response({"message": "Structure synced successfully"}, status=200)
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
+
+# --- 2. STAFF MANAGEMENT ---
 
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
@@ -43,7 +104,7 @@ def admin_insert_staff(request):
                 staff_id=f"STF-{data.get('username').upper()}",
                 department=data.get('department'),
                 branch=data.get('branch'),
-                phone_number=data.get('phone_number'),
+                phone_number=data.get('phone_number'), 
                 grade=data.get('grade')
             )
         return Response({"message": "Success"}, status=201)
@@ -51,41 +112,34 @@ def admin_insert_staff(request):
         return Response({"error": str(e)}, status=400)
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAdminUser])
 def get_all_staff(request):
     try:
-        staff_members = StaffManagement.objects.select_related('user').all()
+        staff_members = StaffManagement.objects.all()
         data = []
-        for staff in staff_members:
+        for s in staff_members:
             data.append({
-                "id": staff.id,
-                "username": staff.user.username if staff.user else "N/A",
-                "name": staff.name or (staff.user.first_name if staff.user else "Unnamed"),
-                "grade": staff.grade or "",
-                "email": staff.user.email if staff.user else "N/A",
-                "phone_number": staff.phone_number or "",
-                "department": staff.department or "", 
-                "branch": staff.branch or "",
-                "duties": {
-                    "Internal Test 1": staff.internal1_duty_count,
-                    "Internal Test 2": staff.internal2_duty_count,
-                    "Regular Exam": staff.regular_duty_count
-                }          
+                "id": s.id,
+                "username": s.user.username,
+                "name": s.name or s.user.get_full_name() or s.user.username,
+                "email": s.user.email,
+                "grade": s.grade,
+                "department": s.department,
+                "branch": s.branch,
+                "phone_number": s.phone_number,
+                "internal1_duty_count": s.internal1_duty_count,
+                "internal2_duty_count": s.internal2_duty_count,
+                "regular_duty_count": s.regular_duty_count,
+                "supply_duty_count": s.supply_duty_count,
             })
-        return Response(data, status=200)
+        return Response(data)
     except Exception as e:
         return Response({"error": str(e)}, status=500)
 
-# --- NEW: UPDATE STAFF DUTY BY EXAM TYPE ---
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
 def update_staff_duty_counts(request):
-    """
-    Updates the requirement rules AND synchronizes the individual 
-    staff member columns based on their grade.
-    """
     duties = request.data.get('duties', [])
-    
     if not duties:
         return Response({"error": "No duty data provided"}, status=400)
 
@@ -99,15 +153,12 @@ def update_staff_duty_counts(request):
                 if not grade or not exam_type:
                     continue
 
-                # 1. Update the 'Rulebook' (StaffDutyRequirement)
                 StaffDutyRequirement.objects.update_or_create(
                     staff_grade=grade,
                     exam_type=exam_type,
                     defaults={'required_count': count}
                 )
 
-                # 2. Update the 'Staff Management' specific columns
-                # We filter by grade and update the column corresponding to the exam type
                 staff_subset = StaffManagement.objects.filter(grade=grade)
 
                 if "Internal Test 1" in exam_type:
@@ -120,11 +171,10 @@ def update_staff_duty_counts(request):
                     staff_subset.update(supply_duty_count=count)
 
         return Response({"message": "Requirements and Staff counts updated successfully!"}, status=200)
-
     except Exception as e:
         return Response({"error": str(e)}, status=400)
 
-# --- 2. STAFF TIMETABLE ---
+# --- 3. STAFF TIMETABLE ---
 
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
@@ -159,7 +209,7 @@ def get_staff_timetable(request, username):
     except User.DoesNotExist:
         return Response({"error": "Staff not found"}, status=404)
 
-# --- 3. CLASSROOM & EXAM ---
+# --- 4. CLASSROOM & EXAM ---
 
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
@@ -199,27 +249,35 @@ def insert_exam_schedule(request):
     try:
         with transaction.atomic():
             date = data.get('date')
-            session = data.get('session')
-            exam_type = data.get('examType', 'Regular Exam') # Matches React default
+            session = data.get('session', 'FN')
+            exam_type = data.get('examType', 'Regular Exam') 
+            # Default time slot if not provided by frontend
+            time_slot = data.get('time_slot', '9:30 AM - 12:30 PM' if session == 'FN' else '1:30 PM - 4:30 PM')
+            
             schedules = data.get('schedules', [])
 
-            # 1. Save individual exam subject entries
+            if not schedules:
+                return Response({"error": "No schedule data provided"}, status=400)
+
             for item in schedules:
+                # CRITICAL: Added time_slot which is mandatory in your model
                 ExamSchedule.objects.create(
-                    course_name=f"{item.get('dept')} {item.get('branch')} ({item.get('sem')})",
+                    course_name=f"{item.get('branch')}({item.get('sem')})",
                     subject=item.get('subject'),
                     date=date,
+                    time_slot=time_slot, 
                     session=session,
-                    exam_type=exam_type,
-                    time_slot=f"{session} - {exam_type}"
+                    exam_type=exam_type
                 )
-            
-            # 2. Logic to automatically pull duty requirements based on exam type could go here
-            # Or continue saving specific overrides if passed in the request
+                
+        return Response({
+            "message": "Saved successfully! Staff availability has been auto-calculated."
+        }, status=201)
 
-        return Response({"message": "Saved to Exam Schedule successfully!"}, status=201)
     except Exception as e:
-        return Response({"error": str(e)}, status=400)
+        # This will catch missing fields or errors in the background Signal
+        print(f"Error saving schedule: {str(e)}") 
+        return Response({"error": f"Database Error: {str(e)}"}, status=400)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -227,9 +285,7 @@ def get_all_exams(request):
     exams = ExamSchedule.objects.all().order_by('-date')
     data = []
     for e in exams:
-        # Handling date formatting for JSON
         formatted_date = e.date.strftime('%Y-%m-%d') if hasattr(e.date, 'strftime') else str(e.date)
-        
         data.append({
             "id": e.id,
             "course_name": e.course_name,
@@ -241,7 +297,109 @@ def get_all_exams(request):
         })
     return Response(data)
 
-# --- 4. DASHBOARD & ALLOCATION ---
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def get_allocated_duties(request):
+    # Get dates from the React request (?start=YYYY-MM-DD&end=YYYY-MM-DD)
+    start_date = request.query_params.get('start')
+    end_date = request.query_params.get('end')
+
+    if not start_date or not end_date:
+        return Response({"error": "Please provide both start and end dates"}, status=400)
+
+    try:
+        # 1. Fetch records within the range that were marked FREE by our automation signal
+        availabilities = StaffAvailability.objects.filter(
+            exam_date__range=[start_date, end_date],
+            is_available=True
+        ).select_related('staff')
+
+        results = []
+        for record in availabilities:
+            # 2. Try to get the detailed profile from StaffManagement
+            try:
+                profile = StaffManagement.objects.get(user=record.staff)
+                display_name = profile.name or record.staff.username
+                branch_name = profile.branch
+            except StaffManagement.DoesNotExist:
+                # Fallback if the staff user exists but doesn't have a profile yet
+                display_name = record.staff.username
+                branch_name = "Not Assigned"
+
+            results.append({
+                "name": display_name,
+                "date": record.exam_date.strftime('%Y-%m-%d') if hasattr(record.exam_date, 'strftime') else record.exam_date,
+                "session": record.session,
+                "branch": branch_name
+            })
+
+        return Response({"allocated_staff": results}, status=200)
+
+    except Exception as e:
+        return Response({"error": f"Internal Error: {str(e)}"}, status=500)
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def get_available_staff_for_duty(request):
+    try:
+        # Data from Admin: { "date": "2026-03-16", "branch_sem": "IMCAS2", "session": "FN" }
+        exam_date = request.data.get('date')
+        target_branch_sem = request.data.get('branch_sem') # e.g., "IMCAS2"
+        session = request.data.get('session') # "FN" or "AN"
+        
+        if not all([exam_date, target_branch_sem, session]):
+            return Response({"error": "Missing required fields"}, status=400)
+
+        # Get day name (e.g., "Monday")
+        day_name = pd.to_datetime(exam_date).day_name()
+        
+        available_staff_list = []
+        
+        # 1. Get all staff profiles
+        all_staff = StaffProfile.objects.all().select_related('user')
+        
+        # 2. Define the blocks of periods we need free
+        target_periods = ['P1', 'P2', 'P3'] if session == "FN" else ['P4', 'P5', 'P6']
+        
+        for profile in all_staff:
+            # 3. GET ORIGINAL SLOTS
+            slots = Timetable.objects.filter(staff=profile.user, day=day_name)
+            
+            # 4. VIRTUAL CLEANUP: Ignore the exam branch/sem
+            # This is your logic: "If they teach IMCAS2 during the exam, they are actually free"
+            virtual_timetable = slots.exclude(branch_sem=target_branch_sem)
+            
+            # 5. FN/AN CHECKING
+            # We check if there are ANY remaining classes in the target periods
+            is_fully_free = True
+            for p in target_periods:
+                if virtual_timetable.filter(period=p).exists():
+                    is_fully_free = False
+                    break
+            
+            # 6. ADD TO LIST IF FREE
+            if is_fully_free:
+                available_staff_list.append({
+                    "id": profile.user.id,
+                    "name": profile.user.get_full_name() or profile.user.username,
+                    "branch": profile.branch
+                })
+
+        return Response({
+            "exam_details": {
+                "date": exam_date,
+                "day": day_name,
+                "session": session,
+                "target": target_branch_sem
+            },
+            "available_staff": available_staff_list
+        }, status=200)
+
+    except Exception as e:
+        return Response({"error": str(e)}, status=400)
+
+# --- 5. DASHBOARD & ALLOCATION ---
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -254,17 +412,17 @@ def staff_dashboard(request):
 
         return Response({
             "profile": {
-                "name": request.user.first_name or request.user.username,
+                "name": profile.name if profile and profile.name else (request.user.first_name or request.user.username),
                 "email": request.user.email,
+                "phone": profile.phone_number if profile else "N/A",
                 "grade": profile.grade if profile else "Not Assigned",
                 "department": profile.department if profile else "N/A",
                 "branch": profile.branch if profile else "N/A",
                 "image_url": image_url,
-                "requirements": {
-            "Internal 1 Duty": profile.internal1_duty_count,
-            "Internal 2 Duty": profile.internal2_duty_count,
-            "Regular Duty": profile.regular_duty_count,
-        }
+                "internal1_duty_count": profile.internal1_duty_count if profile else 0, 
+                "internal2_duty_count": profile.internal2_duty_count if profile else 0, 
+                "regular_duty_count": profile.regular_duty_count if profile else 0,     
+                "supply_duty_count": profile.supply_duty_count if profile else 0,
             },
             "timetable": profile.timetable_data if profile else []
         })
@@ -280,58 +438,41 @@ def upload_profile_image(request):
             return Response({"error": "Staff profile not found"}, status=404)
 
         if 'image' in request.FILES:
-            profile.profile_image = request.FILES['image']
+            new_image = request.FILES['image']
+            if profile.profile_image and os.path.isfile(profile.profile_image.path):
+                try:
+                    os.remove(profile.profile_image.path)
+                except:
+                    pass
+            profile.profile_image = new_image
             profile.save()
-            return Response({
-                "message": "Image uploaded", 
-                "url": request.build_absolute_uri(profile.profile_image.url)
-            })
-        return Response({"error": "No image file found"}, status=400)
+            image_url = request.build_absolute_uri(profile.profile_image.url)
+            return Response({"message": "Image uploaded successfully", "image_url": image_url})
+        return Response({"error": "No image file found in request"}, status=400)
     except Exception as e:
-        return Response({"error": str(e)}, status=500)
+        return Response({"error": f"Upload failed: {str(e)}"}, status=500)
 
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
 def allocate_duties(request):
-    """
-    Enhanced Allocation logic that respects individual limits for 
-    Internal 1, Internal 2, Regular, and Supplementary exams.
-    """
     try:
         with transaction.atomic():
-            # 1. Clear previous assignments and reset counts for a fresh allocation
             DutyAssignment.objects.all().delete()
-            StaffManagement.objects.all().update(
-                duty_count=0,
-                internal1_duty_count=0,
-                internal2_duty_count=0,
-                regular_duty_count=0,
-                supply_duty_count=0
-            )
-            
+            StaffManagement.objects.all().update(duty_count=0)
             sessions = ExamSchedule.objects.all()
             rooms = ClassroomSetup.objects.all()
 
             for session in sessions:
-                # Identify exam type (e.g., 'Internal Test 1', 'Regular Exam')
                 current_type = getattr(session, 'exam_type', 'Regular Exam')
-                
                 for room in rooms:
-                    # 2. Get all staff members
                     all_staff = StaffManagement.objects.all()
                     eligible_staff = []
-
                     for staff in all_staff:
-                        # 3. Look up the requirement/limit for this staff's grade and this exam type
                         req = StaffDutyRequirement.objects.filter(
                             staff_grade=staff.grade, 
                             exam_type=current_type
                         ).first()
-                        
-                        # Default limit is 0 if no rule is found, or use the saved count
                         limit = req.required_count if req else 0
-
-                        # 4. Check if staff has reached their specific limit for this type
                         current_staff_count = 0
                         if "Internal Test 1" in current_type:
                             current_staff_count = staff.internal1_duty_count
@@ -345,20 +486,10 @@ def allocate_duties(request):
                         if current_staff_count < limit:
                             eligible_staff.append(staff)
 
-                    # 5. Pick the eligible staff with the lowest TOTAL duty_count to keep it fair
                     if eligible_staff:
-                        # Sort by total duty_count and pick the first one
                         eligible_staff.sort(key=lambda x: x.duty_count)
                         selected_staff = eligible_staff[0]
-
-                        # 6. Create Assignment
-                        DutyAssignment.objects.create(
-                            staff=selected_staff, 
-                            exam=session, 
-                            room=room
-                        )
-
-                        # 7. Increment specific and total counts
+                        DutyAssignment.objects.create(staff=selected_staff, exam=session, room=room)
                         if "Internal Test 1" in current_type:
                             selected_staff.internal1_duty_count += 1
                         elif "Internal Test 2" in current_type:
@@ -367,16 +498,13 @@ def allocate_duties(request):
                             selected_staff.regular_duty_count += 1
                         elif "Supplementary" in current_type or "Supply" in current_type:
                             selected_staff.supply_duty_count += 1
-                        
                         selected_staff.duty_count += 1
                         selected_staff.save()
-
             return Response({"message": "Duty Allocation Complete!"}, status=200)
-            
     except Exception as e:
         return Response({"error": str(e)}, status=500)
 
-# --- 5. AUTHENTICATION & PROFILE SETTINGS ---
+# --- 6. AUTHENTICATION & PROFILE SETTINGS ---
 
 class CustomAuthToken(ObtainAuthToken):
     def post(self, request, *args, **kwargs):
@@ -426,10 +554,8 @@ class UpdateProfileView(APIView):
         user = request.user
         data = request.data
         profile = getattr(user, 'staffmanagement', None)
-
         if not profile:
             return Response({"message": "Staff profile not found"}, status=404)
-
         try:
             with transaction.atomic():
                 if 'name' in data:
@@ -438,16 +564,14 @@ class UpdateProfileView(APIView):
                 if 'password' in data and data['password'].strip():
                     user.set_password(data['password'])
                 user.save()
-
                 if 'phone_number' in data: profile.phone_number = data['phone_number']
                 if 'grade' in data: profile.grade = data['grade']
                 profile.save()
-
             return Response({"message": "Profile updated successfully"}, status=200)
         except Exception as e:
             return Response({"message": str(e)}, status=400)
 
-# --- 6. DELETION & HOME ---
+# --- 7. DELETION & HOME ---
 
 @api_view(['DELETE'])
 @permission_classes([IsAdminUser])
