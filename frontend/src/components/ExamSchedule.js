@@ -1,26 +1,78 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const ExamSchedule = ({ departments, token, renderBranchOptions, renderSemesterOptions }) => {
     // 1. State Definitions
     const [examBase, setExamBase] = useState({ date: '', session: '', examType: 'Internal Test 1' });
     const [examEntries, setExamEntries] = useState([{ dept: 'B.Tech', branch: '', sem: 'S1', subject: '' }]);
-    
-    // --- STAFF DUTY STATE (Including Exam Type) ---
-    const [staffGradeDuty, setStaffGradeDuty] = useState([
-    { grade: 'Assistant Professor', examType: 'Internal Test 1', count: '2' }
-]);
-    
+    const [staffGradeDuty, setStaffGradeDuty] = useState([{ grade: 'Assistant Professor', examType: 'Internal Test 1', count: '2' }]);
     const [savedSchedules, setSavedSchedules] = useState([]); 
     const [loading, setLoading] = useState(true);
-
     const [filterDate, setFilterDate] = useState('');
     const [filterDept, setFilterDept] = useState('');
 
-    const getDayName = (dateString) => {
-        if (!dateString) return '';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', { weekday: 'long' });
+    // --- UTILITY: Formatting & Styling ---
+    const getExamTypeStyles = (type) => {
+        const t = type?.toLowerCase() || '';
+        if (t.includes('internal')) return { color: '#4a5568', bg: '#f1f5f9', border: '#cbd5e1' };
+        if (t.includes('regular')) return { color: '#166534', bg: '#dcfce7', border: '#bbf7d0' };
+        return { color: '#718096', bg: '#f8fafc', border: '#e2e8f0' };
+    };
+
+    const formatDateParts = (dateStr) => {
+        if (!dateStr) return { dayName: '', dateNum: '' };
+        const date = new Date(dateStr);
+        return {
+            dayName: date.toLocaleDateString('en-GB', { weekday: 'long' }).toUpperCase(),
+            dateNum: date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+        };
+    };
+
+    // --- SORTING & FILTERING LOGIC ---
+    // Combined logic to sort by Date (ascending) and Session (FN before AN)
+    const processedSchedules = useMemo(() => {
+        return [...savedSchedules]
+            .filter(item => {
+                const matchesDate = filterDate === '' || item.date === filterDate;
+                const matchesDept = filterDept === '' || (item.course_name && item.course_name.includes(filterDept));
+                return matchesDate && matchesDept;
+            })
+            .sort((a, b) => {
+                // 1. Sort by Date first
+                const dateDiff = new Date(a.date) - new Date(b.date);
+                if (dateDiff !== 0) return dateDiff;
+
+                // 2. Sort by Session (FN comes before AN)
+                // We compare 'FN' and 'AN'. Since 'F' > 'A', localeCompare would put AN first.
+                // We reverse it to ensure FN is first.
+                return b.session.localeCompare(a.session);
+            });
+    }, [savedSchedules, filterDate, filterDept]);
+
+    // --- PDF GENERATION (Uses the Sorted Data) ---
+    const generatePDF = () => {
+        const doc = new jsPDF('landscape');
+        doc.setFontSize(18);
+        doc.text("EXAM SCHEDULE REPORT", 148, 15, { align: "center" });
+        
+        const tableColumn = ["Date", "Day", "Exam Type", "Session", "Course/Branch", "Subject"];
+        const tableRows = processedSchedules.map(item => {
+            const { dayName, dateNum } = formatDateParts(item.date);
+            return [dateNum, dayName, item.exam_type, item.session, item.course_name, item.subject];
+        });
+
+        autoTable(doc, {
+            head: [tableColumn],
+            body: tableRows,
+            startY: 25,
+            theme: 'grid',
+            headStyles: { fillColor: [44, 62, 80], halign: 'center' },
+            styles: { fontSize: 9 }
+        });
+
+        doc.save(`Exam_Schedule_${new Date().toLocaleDateString()}.pdf`);
     };
 
     // 2. Fetch Data
@@ -32,250 +84,169 @@ const ExamSchedule = ({ departments, token, renderBranchOptions, renderSemesterO
             });
             setSavedSchedules(res.data);
         } catch (err) {
-            console.error("Error fetching old schedules:", err);
+            console.error("Error fetching schedules:", err);
         } finally {
             setLoading(false);
         }
     }, [token]);
 
-    useEffect(() => {
-        fetchSchedules();
-    }, [fetchSchedules]);
+    useEffect(() => { fetchSchedules(); }, [fetchSchedules]);
 
-    // 3. Delete Handler
     const handleDeleteSchedule = async (id) => {
-        try {
-            await axios.delete(`http://127.0.0.1:8000/api/admin/delete-exam-schedule/${id}/`, {
-                headers: { 'Authorization': `Token ${token}` }
-            });
-            setSavedSchedules(prev => prev.filter(exam => exam.id !== id));
-            alert("Exam schedule deleted successfully!");
-        } catch (err) {
-            console.error("Delete Error:", err);
-            alert("Failed to delete.");
+        if (window.confirm("Delete this schedule?")) {
+            try {
+                await axios.delete(`http://127.0.0.1:8000/api/admin/delete-exam-schedule/${id}//`, {
+                    headers: { 'Authorization': `Token ${token}` }
+                });
+                setSavedSchedules(prev => prev.filter(exam => exam.id !== id));
+            } catch (err) { alert("Failed to delete."); }
         }
     };
 
-    // 4. Filtering Logic
-    const filteredSchedules = savedSchedules.filter(item => {
-        const matchesDate = filterDate === '' || item.date === filterDate;
-        const matchesDept = filterDept === '' || (item.course_name && item.course_name.includes(filterDept));
-        return matchesDate && matchesDept;
-    });
-
-    // 5. Entry Management
-    const addMoreExamEntry = () => {
-        setExamEntries([...examEntries, { dept: 'B.Tech', branch: '', sem: 'S1', subject: '' }]);
-    };
-
-    const updateEntry = (index, field, value) => {
-        const updated = [...examEntries];
-        updated[index][field] = value;
-        setExamEntries(updated);
-    };
-
-    // --- STAFF DUTY MANAGEMENT FUNCTIONS ---
-    const addStaffGrade = () => {
-        setStaffGradeDuty([...staffGradeDuty, { grade: 'Assistant Professor', examType: 'Internal Test 1', count: '' }]);
-    };
-
-    const updateStaffDuty = (index, field, value) => {
-        const updated = [...staffGradeDuty];
-        updated[index][field] = value;
-        setStaffGradeDuty(updated);
-    };
-
-    const handleStaffDutyUpdate = async (e) => {
-        e.preventDefault();
-        try {
-            await axios.post('http://127.0.0.1:8000/api/admin/update-staff-duty-counts/', 
-                { duties: staffGradeDuty }, 
-                { headers: { 'Authorization': `Token ${token}` }}
-            );
-            alert("Staff Duty Counts updated based on Grade and Exam Type!");
-        } catch (err) {
-            alert("Error updating staff duty counts.");
-        }
-    };
+    // Helpers for form
+    const addMoreExamEntry = () => setExamEntries([...examEntries, { dept: 'B.Tech', branch: '', sem: 'S1', subject: '' }]);
+    const updateEntry = (idx, f, v) => { const u = [...examEntries]; u[idx][f] = v; setExamEntries(u); };
+    const addStaffGrade = () => setStaffGradeDuty([...staffGradeDuty, { grade: 'Assistant Professor', examType: 'Internal Test 1', count: '' }]);
+    const updateStaffDuty = (idx, f, v) => { const u = [...staffGradeDuty]; u[idx][f] = v; setStaffGradeDuty(u); };
 
     const handleExamSubmit = async (e) => {
         e.preventDefault();
-        const payload = { ...examBase, schedules: examEntries };
         try {
-            await axios.post('http://127.0.0.1:8000/api/admin/insert-exam/', payload, {
+            await axios.post('http://127.0.0.1:8000/api/admin/insert-exam/', { ...examBase, schedules: examEntries }, {
                 headers: { 'Authorization': `Token ${token}` }
             });
             alert("Exam Schedule Saved!");
             setExamEntries([{ dept: 'B.Tech', branch: '', sem: 'S1', subject: '' }]);
             fetchSchedules(); 
-        } catch (err) { alert("Error saving exam schedule."); }
+        } catch (err) { alert("Error saving."); }
     };
 
     return (
-        <div className="tab-section">
-            {/* --- SECTION 1: STAFF DUTY REQUIREMENTS (WITH EXAM TYPE) --- */}
-            <div className="staff-duty-section" style={{ background: '#fff9e6', padding: '20px', borderRadius: '8px', marginBottom: '30px', border: '1px solid #ffeeba' }}>
-                <h3 style={{ marginTop: 0, color: '#856404' }}>Staff Duty Settings</h3>
-                
-                <form onSubmit={handleStaffDutyUpdate}>
-                    {staffGradeDuty.map((duty, index) => (
+        <div className="tab-section" style={{ padding: '25px', backgroundColor: '#f8fafc' }}>
+            
+            {/* --- SECTION 1: STAFF DUTY SETTINGS --- */}
+            <div style={{ background: '#fff', padding: '20px', borderRadius: '12px', marginBottom: '30px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
+                <h3 style={{ marginTop: 0, color: '#1e293b', fontSize: '1.2rem' }}>⚙️ Staff Duty Settings</h3>
+                {staffGradeDuty.map((duty, index) => (
+                    <div key={index} style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+                        <select className="admin-select" style={{ flex: 1 }} value={duty.grade} onChange={e => updateStaffDuty(index, 'grade', e.target.value)}>
+                            <option value="Assistant Professor">Assistant Professor</option>
+                            <option value="Associate Professor">Associate Professor</option>
+                            <option value="Professor">Professor</option>
+                        </select>
+                        <select className="admin-select" style={{ flex: 1 }} value={duty.examType} onChange={e => updateStaffDuty(index, 'examType', e.target.value)}>
+                            <option value="Internal Test 1">Internal Test 1</option>
+                            <option value="Internal Test 2">Internal Test 2</option>
+                            <option value="Regular Exam">Regular Exam</option>
+                        </select>
+                        <input type="number" className="admin-input" style={{ width: '100px' }} placeholder="Count" value={duty.count} onChange={e => updateStaffDuty(index, 'count', e.target.value)} />
+                        <button type="button" onClick={() => setStaffGradeDuty(staffGradeDuty.filter((_, i) => i !== index))} className="btn-delete-outline">×</button>
+                    </div>
+                ))}
+                <button type="button" onClick={addStaffGrade} style={{ background: '#64748b', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer' }}>+ Add Rule</button>
+            </div>
+
+            {/* --- SECTION 2: CREATE SCHEDULE --- */}
+            <div style={{ background: '#fff', padding: '25px', borderRadius: '12px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)', marginBottom: '30px' }}>
+                <h3 style={{ color: '#1e293b', marginBottom: '20px' }}>📅 Create New Exam Schedule</h3>
+                <form onSubmit={handleExamSubmit}>
+                    <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', background: '#f1f5f9', padding: '15px', borderRadius: '8px' }}>
+                        <div style={{ flex: 1 }}><label style={{ fontSize: '11px', fontWeight: '800' }}>DATE</label>
+                            <input type="date" className="admin-input" value={examBase.date} onChange={e => setExamBase({...examBase, date: e.target.value})} required />
+                        </div>
+                        <div style={{ flex: 1 }}><label style={{ fontSize: '11px', fontWeight: '800' }}>SESSION</label>
+                            <select className="admin-select" value={examBase.session} onChange={e => setExamBase({...examBase, session: e.target.value})} required>
+                                <option value="">Select</option><option value="FN">FN</option><option value="AN">AN</option>
+                            </select>
+                        </div>
+                        <div style={{ flex: 1 }}><label style={{ fontSize: '11px', fontWeight: '800' }}>EXAM TYPE</label>
+                            <select className="admin-select" value={examBase.examType} onChange={e => setExamBase({...examBase, examType: e.target.value})} required>
+                                <option value="Internal Test 1">Internal Test 1</option><option value="Internal Test 2">Internal Test 2</option><option value="Regular Exam">Regular Exam</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    {examEntries.map((entry, index) => (
                         <div key={index} style={{ display: 'flex', gap: '10px', marginBottom: '10px', alignItems: 'center' }}>
-                            <select 
-                                style={{ flex: 1.5, padding: '10px' }} 
-                                value={duty.grade} 
-                                onChange={e => updateStaffDuty(index, 'grade', e.target.value)}
-                            >
-                                <option value="Assistant Professor">Assistant Professor</option>
-                                <option value="Associate Professor">Associate Professor</option>
-                                <option value="Professor">Professor</option>
-                                <option value="Lab Assistant">Lab Assistant</option>
+                            <select className="admin-select" style={{ width: '120px' }} value={entry.dept} onChange={e => updateEntry(index, 'dept', e.target.value)}>
+                                {departments.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
                             </select>
-
-                            <select 
-                                style={{ flex: 1.5, padding: '10px' }} 
-                                value={duty.examType} 
-                                onChange={e => updateStaffDuty(index, 'examType', e.target.value)}
-                            >
-                                <option value="Internal Test 1">Internal Test 1</option>
-                                <option value="Internal Test 2">Internal Test 2</option>
-                                <option value="Regular Exam">Regular Exam</option>
+                            <select className="admin-select" style={{ flex: 1 }} value={entry.branch} onChange={e => updateEntry(index, 'branch', e.target.value)} required>
+                                <option value="">Branch</option>{renderBranchOptions(entry.dept)}
                             </select>
-
-                            <input 
-                                type="number" 
-                                placeholder="Duty Count" 
-                                style={{ flex: 1, padding: '10px' }} 
-                                value={duty.count} 
-                                onChange={e => updateStaffDuty(index, 'count', e.target.value)}
-                                required
-                            />
-                            {staffGradeDuty.length > 1 && (
-                                <button type="button" onClick={() => setStaffGradeDuty(staffGradeDuty.filter((_, i) => i !== index))} style={{background: '#ff4d4d', color: 'white', border: 'none', padding: '10px', borderRadius: '4px'}}>×</button>
-                            )}
+                            <select className="admin-select" style={{ width: '100px' }} value={entry.sem} onChange={e => updateEntry(index, 'sem', e.target.value)} required>
+                                <option value="">Sem</option>{renderSemesterOptions(entry.dept, entry.branch)}
+                            </select>
+                            <input className="admin-input" style={{ flex: 2 }} type="text" value={entry.subject} onChange={e => updateEntry(index, 'subject', e.target.value)} placeholder="Subject Name" required />
+                            <button type="button" onClick={() => setExamEntries(examEntries.filter((_, i) => i !== index))} className="btn-delete-outline">Remove</button>
                         </div>
                     ))}
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                        <button type="button" onClick={addStaffGrade} style={{ background: '#f1c40f', border: 'none', padding: '10px 15px', borderRadius: '4px', fontWeight: 'bold' }}>+ Add Requirement</button>
-                        <button type="submit" style={{ background: '#27ae60', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '4px', fontWeight: 'bold' }}>Save Duty Rules</button>
+                    <div style={{ marginTop: '15px' }}>
+                        <button type="button" onClick={addMoreExamEntry} className="btn-save" style={{ background: '#94a3b8' }}>+ Add Subject</button>
+                        <button type="submit" className="btn-save" style={{ marginLeft: '10px', background: '#2d3748' }}>Save Schedule</button>
                     </div>
                 </form>
             </div>
 
-            <hr style={{ margin: '30px 0', border: '0.5px solid #eee' }} />
-
-            {/* --- SECTION 2: EXAM SCHEDULE MANAGEMENT --- */}
-            <h3>Create New Exam Schedule</h3>
-            <form className="admin-form" onSubmit={handleExamSubmit}>
-                <div className="global-selection-box" style={{ background: '#f0f4f8', padding: '20px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #d1d9e6' }}>
-                    <div className="form-row" style={{ display: 'flex', gap: '20px' }}>
-                        <div style={{ flex: 1 }}>
-                            <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Date</label>
-                            <input type="date" style={{ width: '100%', padding: '8px' }} value={examBase.date} onChange={e => setExamBase({...examBase, date: e.target.value})} required />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                            <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Session</label>
-                            <select style={{ width: '100%', padding: '8px' }} value={examBase.session} onChange={e => setExamBase({...examBase, session: e.target.value})} required>
-                                <option value="">Select Session</option>
-                                <option value="FN">FN</option>
-                                <option value="AN">AN</option>
-                            </select>
-                        </div>
-                        <div style={{ flex: 1 }}>
-                            <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Exam Type</label>
-                            <select style={{ width: '100%', padding: '8px' }} value={examBase.examType} onChange={e => setExamBase({...examBase, examType: e.target.value})} required>
-                                <option value="Internal Test 1">Internal Test 1</option>
-                                <option value="Internal Test 2">Internal Test 2</option>
-                                <option value="Regular Exam">Regular Exam</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-
-                {examEntries.map((entry, index) => (
-                    <div key={index} style={{ background: '#fff', border: '1px solid #ddd', padding: '15px', marginBottom: '10px', borderRadius: '5px' }}>
-                        <div className="form-row" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                            <select value={entry.dept} onChange={e => updateEntry(index, 'dept', e.target.value)}>
-                                {departments.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
-                            </select>
-                            <select value={entry.branch} onChange={e => updateEntry(index, 'branch', e.target.value)} required>
-                                <option value="">Select Branch</option>
-                                {renderBranchOptions(entry.dept)}
-                            </select>
-                            <select value={entry.sem} onChange={e => updateEntry(index, 'sem', e.target.value)} required>
-                                <option value="">Select Semester</option>
-                                {renderSemesterOptions(entry.dept, entry.branch)}
-                            </select>
-                            <input style={{ flex: 1, padding: '8px' }} type="text" value={entry.subject} onChange={e => updateEntry(index, 'subject', e.target.value)} placeholder="Subject Name" required />
-                            {examEntries.length > 1 && (
-                                <button type="button" onClick={() => setExamEntries(examEntries.filter((_, i) => i !== index))} style={{background: '#ff4d4d', color: 'white', border: 'none', padding: '8px', borderRadius: '4px'}}>Remove</button>
-                            )}
-                        </div>
-                    </div>
-                ))}
-                
-                <div style={{ marginTop: '15px' }}>
-                    <button type="button" onClick={addMoreExamEntry} style={{ padding: '8px 15px' }}>+ Add Subject</button>
-                    <button type="submit" className="btn-primary" style={{ marginLeft: '10px', padding: '8px 15px' }}>Save Schedule</button>
-                </div>
-            </form>
-
-            <hr style={{ margin: '40px 0', border: '0.5px solid #eee' }} />
-
-            {/* --- SECTION 3: DISPLAY SAVED DATA --- */}
-            <div className="display-section">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '20px' }}>
-                    <h3 style={{ margin: 0 }}>Saved Exam Schedules</h3>
+            {/* --- SECTION 3: DISPLAY LIST (SORTED) --- */}
+            <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <h3 style={{ color: '#1e293b', fontWeight: '800' }}>Saved Exam Schedules</h3>
                     <div style={{ display: 'flex', gap: '10px' }}>
-                        <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} style={{ padding: '6px' }} />
-                        <select value={filterDept} onChange={(e) => setFilterDept(e.target.value)} style={{ padding: '6px' }}>
-                            <option value="">All Departments</option>
-                            {departments.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
-                        </select>
+                        <input type="date" className="admin-input" style={{ width: '150px' }} value={filterDate} onChange={(e) => setFilterDate(e.target.value)} />
+                        <button onClick={generatePDF} style={{ padding: '8px 15px', backgroundColor: '#27ae60', color: 'white', border: 'none', borderRadius: '6px', fontWeight: '600', cursor: 'pointer' }}>Download PDF</button>
                     </div>
                 </div>
 
-                {loading ? <p>Loading...</p> : (
-                    <div style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.1)', borderRadius: '8px', overflow: 'hidden' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white' }}>
-                            <thead>
-                                <tr style={{ background: '#34495e', color: 'white', textAlign: 'left' }}>
-                                    <th style={{ padding: '12px' }}>Date / Day</th>
-                                    <th style={{ padding: '12px' }}>Type / Session</th>
-                                    <th style={{ padding: '12px' }}>Course & Subject</th>
-                                    <th style={{ padding: '12px', textAlign: 'center' }}>Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {filteredSchedules.map((item, idx) => (
-                                    <tr key={item.id || idx} style={{ borderBottom: '1px solid #eee' }}>
-                                        <td style={{ padding: '12px' }}>
-                                            <strong>{item.date}</strong><br/>
-                                            <small style={{ color: '#2980b9' }}>{getDayName(item.date)}</small>
+                <div style={{ backgroundColor: '#fff', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                            <tr style={{ backgroundColor: '#334155', color: 'white' }}>
+                                <th style={{ padding: '15px', textAlign: 'left' }}>Date & Day</th>
+                                <th style={{ padding: '15px', textAlign: 'center' }}>Type & Session</th>
+                                <th style={{ padding: '15px', textAlign: 'left' }}>Course Details</th>
+                                <th style={{ padding: '15px', textAlign: 'left' }}>Subject</th>
+                                <th style={{ padding: '15px', textAlign: 'center' }}>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {loading ? <tr><td colSpan="5" style={{ textAlign: 'center', padding: '20px' }}>Loading...</td></tr> : 
+                             processedSchedules.map((item, idx) => {
+                                const { dayName, dateNum } = formatDateParts(item.date);
+                                const typeStyle = getExamTypeStyles(item.exam_type);
+                                return (
+                                    <tr key={item.id || idx} style={{ 
+                                        borderBottom: '1px solid #edf2f7',
+                                        backgroundColor: item.session === 'FN' ? '#fff' : '#fcfcfc' // Subtle tint for AN
+                                    }}>
+                                        <td style={{ padding: '15px', borderLeft: item.session === 'FN' ? '4px solid #2563eb' : '4px solid #d97706' }}>
+                                            <div style={{ fontWeight: '800', color: '#2563eb', fontSize: '13px' }}>{dayName}</div>
+                                            <div style={{ fontSize: '11px', color: '#64748b' }}>{dateNum}</div>
                                         </td>
-                                        <td style={{ padding: '12px' }}>
-                                            <span style={{ fontSize: '11px', background: '#e8f4fd', padding: '3px 7px', borderRadius: '4px' }}>
-                                                {item.exam_type || 'N/A'}
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <span style={{ 
+                                                display: 'inline-block', padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', 
+                                                backgroundColor: typeStyle.bg, color: typeStyle.color, border: `1px solid ${typeStyle.border}`, marginBottom: '5px'
+                                            }}>
+                                                {item.exam_type}
                                             </span><br/>
-                                            <small>{item.session}</small>
+                                            <span style={{ fontSize: '11px', fontWeight: '800', color: item.session === 'FN' ? '#2563eb' : '#d97706' }}>
+                                                {item.session}
+                                            </span>
                                         </td>
-                                        <td style={{ padding: '12px' }}>
-                                            <strong>{item.course_name}</strong><br/>
-                                            <span style={{ color: '#666' }}>{item.subject}</span>
+                                        <td style={{ padding: '15px' }}>
+                                            <div style={{ fontWeight: '600', color: '#1e293b', fontSize: '13px' }}>{item.course_name}</div>
                                         </td>
-                                        <td style={{ padding: '12px', textAlign: 'center' }}>
-                                            <button 
-                                                onClick={() => window.confirm("Delete?") && handleDeleteSchedule(item.id)}
-                                                style={{ background: 'none', border: '1px solid #e74c3c', color: '#e74c3c', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}
-                                            >
-                                                Delete
-                                            </button>
+                                        <td style={{ padding: '15px', color: '#475569', fontSize: '13px' }}>{item.subject}</td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>
+                                            <button onClick={() => handleDeleteSchedule(item.id)} className="btn-delete-outline" style={{ fontSize: '11px' }}>Delete</button>
                                         </td>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     );

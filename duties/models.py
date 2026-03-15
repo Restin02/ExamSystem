@@ -3,6 +3,8 @@ from django.contrib.auth.models import User
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from datetime import datetime
+import re
+from django.db.models.signals import post_delete
 
 # --- DEPARTMENT & BRANCH SETUP ---
 
@@ -58,6 +60,7 @@ class ClassroomSetup(models.Model):
     room_no = models.CharField(max_length=20)
     capacity = models.IntegerField()
     date = models.DateField(null=True, blank=True)
+    session = models.CharField(max_length=2, default='FN')
 
     class Meta:
         verbose_name = "Classroom Setup"
@@ -67,11 +70,11 @@ class ClassroomSetup(models.Model):
         return f"{self.block} - {self.room_no}"
 
 class ExamSchedule(models.Model):
-    course_name = models.CharField(max_length=100) # e.g., "MCA(S2)"
+    course_name = models.CharField(max_length=100) 
     subject = models.CharField(max_length=100)
     date = models.DateField()
     time_slot = models.CharField(max_length=50)
-    session = models.CharField(max_length=10, default='FN') # FN or AN
+    session = models.CharField(max_length=10, default='FN') 
     exam_type = models.CharField(max_length=50, blank=True, null=True)
 
     class Meta:
@@ -115,9 +118,9 @@ class DutyAssignment(models.Model):
 
 class Timetable(models.Model):
     staff = models.ForeignKey(User, on_delete=models.CASCADE)
-    day = models.CharField(max_length=10) # Monday, Tuesday...
-    period = models.CharField(max_length=2) # P1, P2...
-    branch_sem = models.CharField(max_length=10) # IMCAS2, MCAS4...
+    day = models.CharField(max_length=10) 
+    period = models.CharField(max_length=2) 
+    branch_sem = models.CharField(max_length=10) 
     subject = models.CharField(max_length=100)
 
     def __str__(self):
@@ -126,54 +129,123 @@ class Timetable(models.Model):
 class StaffAvailability(models.Model):
     staff = models.ForeignKey(User, on_delete=models.CASCADE)
     exam_date = models.DateField()
-    session = models.CharField(max_length=2) # FN or AN
+    day = models.CharField(max_length=20, blank=True, null=True)
+    session = models.CharField(max_length=2) 
     is_available = models.BooleanField(default=False)
-    free_periods = models.CharField(max_length=100, blank=True) 
+    # Ensure this matches your migration (added blank=True to avoid NOT NULL errors)
+    free_periods = models.CharField(max_length=100, blank=True, default="") 
+    course_name = models.CharField(max_length=100, blank=True, null=True)
 
     class Meta:
-        unique_together = ('staff', 'exam_date', 'session')
+        unique_together = ('staff', 'exam_date', 'session', 'course_name')
 
     def __str__(self):
-        return f"{self.staff.username} - {self.exam_date} ({self.session})"
+        return f"{self.staff.username} - {self.day} {self.session}"
 
 # --- AUTOMATION SIGNAL ---
 
+def clean_name(name):
+    """Removes all non-alphanumeric characters and converts to uppercase."""
+    if not name:
+        return ""
+    return re.sub(r'[^A-Z0-9]', '', name.upper())
+
+
+# --- HELPER FUNCTION ---
+def clean_name(text):
+    """Standardizes course names: 'IMCA (S6)' -> 'IMCAS6'"""
+    if not text: return ""
+    return re.sub(r'[^A-Z0-9]', '', str(text).upper())
+
+# --- AUTOMATION SIGNALS ---
+
 @receiver(post_save, sender=ExamSchedule)
 def auto_calculate_availability(sender, instance, created, **kwargs):
-    if created:
-        # 1. Handle the date conversion safely
-        from datetime import datetime, date
+    """Triggered whenever an exam is created or updated."""
+    print(f"--- Recalculating Session Availability for {instance.date} {instance.session} ---")
+    
+    # 1. Setup Date & Session Parameters
+    d = instance.date
+    date_obj = datetime.strptime(d, '%Y-%m-%d').date() if isinstance(d, str) else d
+    exam_day_short = date_obj.strftime('%a') 
+    target_indices = [0, 1, 2] if instance.session == 'FN' else [3, 4, 5]
+
+    # 2. Get ALL exams scheduled for this date and session
+    active_exams = ExamSchedule.objects.filter(date=date_obj, session=instance.session)
+    active_exam_courses = [clean_name(e.course_name) for e in active_exams]
+    
+    all_staff = StaffManagement.objects.filter(department__icontains="MCA")
+
+    for staff_member in all_staff:
+        is_busy_with_non_exam_batch = False
+        is_freed_by_an_exam = False
+        has_any_classes = False
         
-        d = instance.date
-        if isinstance(d, str):
-            date_obj = datetime.strptime(d, '%Y-%m-%d').date()
+        day_data = next((item for item in staff_member.timetable_data if item["day"] == exam_day_short), None)
+
+        if day_data:
+            periods = day_data.get("periods", [])
+            for idx in target_indices:
+                if idx < len(periods):
+                    slot_value = str(periods[idx]).strip() if periods[idx] else ""
+                    if slot_value == "": continue
+                    
+                    has_any_classes = True
+                    clean_slot = clean_name(slot_value)
+                    
+                    if clean_slot in active_exam_courses:
+                        is_freed_by_an_exam = True
+                    else:
+                        is_busy_with_non_exam_batch = True
+
+        # --- THE DECISION GATE ---
+        should_be_available = False
+        if not has_any_classes:
+            should_be_available = True
+        elif is_freed_by_an_exam and not is_busy_with_non_exam_batch:
+            should_be_available = True
+
+        if should_be_available:
+            # TO FIX YOUR ERROR: Delete any existing rows for this staff/date/session 
+            # before updating to ensure we never have more than one row.
+            StaffAvailability.objects.filter(
+                staff=staff_member.user,
+                exam_date=date_obj,
+                session=instance.session
+            ).delete()
+
+            StaffAvailability.objects.create(
+                staff=staff_member.user,
+                exam_date=date_obj,
+                session=instance.session,
+                day=date_obj.strftime('%A'),
+                is_available=True,
+                course_name="Session-Wide",
+                free_periods=""
+            )
         else:
-            date_obj = d
-            
-        exam_day = date_obj.strftime('%A')
-        target_course = instance.course_name
-        
-        # 2. Determine session periods
-        if instance.session == 'FN':
-            target_periods = ['P1', 'P2', 'P3']
-        else:
-            target_periods = ['P4', 'P5', 'P6']
+            # If not available, remove all records for this staff/session
+            StaffAvailability.objects.filter(
+                staff=staff_member.user,
+                exam_date=date_obj,
+                session=instance.session
+            ).delete()
 
-        # 3. Get staff and calculate
-        all_staff = User.objects.filter(is_staff=True, is_superuser=False)
-
-        for staff_user in all_staff:
-            # Cleanup Rule: Find classes NOT involving the current exam course
-            conflicting_classes = Timetable.objects.filter(
-                staff=staff_user,
-                day=exam_day,
-                period__in=target_periods
-            ).exclude(branch_sem=target_course)
-
-            if not conflicting_classes.exists():
-                StaffAvailability.objects.update_or_create(
-                    staff=staff_user,
-                    exam_date=date_obj,
-                    session=instance.session,
-                    defaults={'is_available': True}
-                )
+@receiver(post_delete, sender=ExamSchedule)
+def cleanup_availability_on_delete(sender, instance, **kwargs):
+    """Triggered when an exam is deleted."""
+    d = instance.date
+    date_obj = datetime.strptime(d, '%Y-%m-%d').date() if isinstance(d, str) else d
+    
+    remaining_exams = ExamSchedule.objects.filter(date=date_obj, session=instance.session)
+    
+    if not remaining_exams.exists():
+        # Session is empty - clear all availability
+        StaffAvailability.objects.filter(exam_date=date_obj, session=instance.session).delete()
+    else:
+        # Re-trigger calculation using one of the remaining exams
+        # We wrap this in a try/except to prevent deletion crashes
+        try:
+            auto_calculate_availability(sender=ExamSchedule, instance=remaining_exams.first(), created=True)
+        except Exception as e:
+            print(f"Error during recalculation: {e}")

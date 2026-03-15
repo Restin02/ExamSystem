@@ -216,13 +216,18 @@ def get_staff_timetable(request, username):
 def insert_classroom(request):
     try:
         data = request.data
-        if not all([data.get('block'), data.get('room_no'), data.get('capacity')]):
-            return Response({"error": "Missing required fields"}, status=400)
+        # 1. Added 'session' to the validation check
+        required_fields = ['block', 'room_no', 'capacity', 'session', 'date']
+        if not all(data.get(field) for field in required_fields):
+            return Response({"error": "Missing required fields (block, room_no, capacity, session, date)"}, status=400)
 
+        # 2. Saving to the model including session and date
         ClassroomSetup.objects.create(
             block=data.get('block'),
             room_no=data.get('room_no'),
             capacity=data.get('capacity'),
+            exam_type=data.get('exam_type'),
+            session=data.get('session'), # Added this
             date=data.get('date')
         )
         return Response({"message": "Saved to Classroom Setup!"}, status=201)
@@ -232,12 +237,15 @@ def insert_classroom(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_rooms(request):
-    rooms = ClassroomSetup.objects.all().order_by('-id')
+    # 3. Improved ordering: order by date descending, then by session
+    rooms = ClassroomSetup.objects.all().order_by('-date', 'session', 'block')
+    
     data = [{
         "id": r.id, 
         "block": r.block, 
         "room_no": r.room_no, 
         "capacity": r.capacity,
+        "session": r.session, # Added this to the response
         "date": r.date.strftime('%Y-%m-%d') if r.date else None 
     } for r in rooms]
     return Response(data)
@@ -308,7 +316,7 @@ def get_allocated_duties(request):
         return Response({"error": "Please provide both start and end dates"}, status=400)
 
     try:
-        # 1. Fetch records within the range that were marked FREE by our automation signal
+        # 1. Fetch records within the range that were marked available
         availabilities = StaffAvailability.objects.filter(
             exam_date__range=[start_date, end_date],
             is_available=True
@@ -316,21 +324,27 @@ def get_allocated_duties(request):
 
         results = []
         for record in availabilities:
-            # 2. Try to get the detailed profile from StaffManagement
+            # 2. Link to StaffManagement to get profile details
             try:
                 profile = StaffManagement.objects.get(user=record.staff)
                 display_name = profile.name or record.staff.username
-                branch_name = profile.branch
+                branch_name = profile.branch or "—"
+                dept_name = profile.department or "—"
+                grade_val = profile.grade or "—"
             except StaffManagement.DoesNotExist:
-                # Fallback if the staff user exists but doesn't have a profile yet
+                # Fallback if profile is missing
                 display_name = record.staff.username
-                branch_name = "Not Assigned"
+                branch_name = "—"
+                dept_name = "—"
+                grade_val = "—"
 
             results.append({
                 "name": display_name,
                 "date": record.exam_date.strftime('%Y-%m-%d') if hasattr(record.exam_date, 'strftime') else record.exam_date,
                 "session": record.session,
-                "branch": branch_name
+                "branch": branch_name,
+                "department": dept_name,  # Added this field
+                "grade": grade_val        # Added this field
             })
 
         return Response({"allocated_staff": results}, status=200)

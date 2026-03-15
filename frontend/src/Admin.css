@@ -371,3 +371,168 @@
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
+/* admin.css */
+
+.tab-section {
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    padding: 20px;
+}
+
+/* Glassmorphism for the Form & Filter areas */
+.admin-form, .filter-box {
+    background: #ffffff;
+    border: 1px solid #e0e6ed;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    transition: all 0.3s ease;
+}
+
+.admin-form:hover {
+    border-color: #3498db;
+}
+
+/* Exam-style labels */
+.form-label {
+    display: block;
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #5a6a85;
+    margin-bottom: 6px;
+}
+
+/* Modern Input styling */
+.admin-input, .admin-select {
+    width: 100%;
+    padding: 10px;
+    border: 2px solid #edeff2;
+    border-radius: 6px;
+    font-size: 14px;
+    color: #2d3748;
+    transition: border-color 0.2s;
+}
+
+.admin-input:focus, .admin-select:focus {
+    outline: none;
+    border-color: #3498db;
+}
+
+/* Table styling */
+.table-container {
+    background: white;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.data-table thead th {
+    background: #f8fafc;
+    color: #475569;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 12px;
+    padding: 16px;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.data-table tbody tr {
+    transition: background 0.2s;
+}
+
+.data-table tbody tr:hover {
+    background: #f1f5f9;
+}
+
+.data-table td {
+    padding: 14px 16px;
+    vertical-align: middle;
+}
+
+/* Session Badges */
+.badge-session {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 800;
+    text-align: center;
+}
+
+.fn-badge {
+    background-color: #e0f2fe;
+    color: #0369a1;
+    border: 1px solid #bae6fd;
+}
+
+.an-badge {
+    background-color: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fde68a;
+}
+
+/* Room Indicator */
+.room-tag {
+    font-weight: 700;
+    color: #1e293b;
+    font-family: 'Courier New', Courier, monospace;
+    background: #f1f5f9;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+/* Primary Button */
+.btn-save {
+    background-color: #2563eb;
+    color: white;
+    font-weight: 600;
+    padding: 10px 24px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-save:hover {
+    background-color: #1d4ed8;
+}
+
+/* Delete Button */
+.btn-delete-outline {
+    background: transparent;
+    border: 1.5px solid #ef4444;
+    color: #ef4444;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-delete-outline:hover {
+    background: #ef4444;
+    color: white;
+}
+
+/* admin.css additions */
+
+.badge-type {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+/* Color coding for different Exam Types */
+.type-regular { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+.type-internal { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+.type-supplementary { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
