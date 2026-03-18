@@ -132,6 +132,7 @@ class StaffProfileSerializer(serializers.ModelSerializer):
     # Change 'profile_pic' to the exact field name in your StaffManagement model
     profile_pic = serializers.ImageField(required=False, allow_null=True)
 
+
     class Meta:
         model = StaffManagement
         fields = [

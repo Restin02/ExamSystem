@@ -67,17 +67,26 @@ const ExamSchedule = ({ departments, token, renderBranchOptions, renderSemesterO
         }
     };
 
+
     const handleExamSubmit = async (e) => {
-        e.preventDefault();
-        try {
-            await axios.post('http://127.0.0.1:8000/api/admin/insert-exam/', { ...examBase, schedules: examEntries }, {
-                headers: { 'Authorization': `Token ${token}` }
-            });
-            alert("Exam Schedule Saved!");
-            setExamEntries([{ dept: 'B.Tech', branch: '', sem: 'S1', subject: '' }]);
-            fetchSchedules(); 
-        } catch (err) { alert("Error saving."); }
-    };
+    e.preventDefault();
+    try {
+        const payload = { 
+            date: examBase.date,
+            session: examBase.session,
+            exam_type: examBase.examType, // Changed from examType to exam_type
+            schedules: examEntries 
+        };
+        
+        await axios.post('http://127.0.0.1:8000/api/admin/insert-exam/', payload, {
+            headers: { 'Authorization': `Token ${token}` }
+        });
+        alert("Exam Schedule Saved!");
+        fetchSchedules(); 
+    } catch (err) { 
+        alert("Error saving."); 
+    }
+};
 
     const handleDeleteSchedule = async (id) => {
         if (window.confirm("Delete this schedule? This will refund staff duty counts.")) {

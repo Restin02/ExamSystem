@@ -118,6 +118,7 @@ const StaffDutyAllocation = () => {
         }
     };
 
+    
     return (
         <div style={{ padding: '30px', backgroundColor: '#f4f7f6', minHeight: '100vh', fontFamily: 'sans-serif' }}>
             <div style={{ textAlign: 'center', marginBottom: '30px' }}>

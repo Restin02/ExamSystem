@@ -367,6 +367,7 @@ def cleanup_unused_staff(date, session):
         record.staff.save()
         record.delete() # Remove from pool as requested
 
+
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
 def insert_exam_schedule(request):
@@ -375,21 +376,29 @@ def insert_exam_schedule(request):
         with transaction.atomic():
             date = data.get('date')
             session = data.get('session', 'FN')
-            exam_type = data.get('examType', 'Regular Exam')
+            exam_type = data.get('exam_type')  # The type selected in React (e.g., 'Internal Test 1')
             schedules = data.get('schedules', [])
 
             # 1. Create/Update Exam Schedules
             for item in schedules:
-                ExamSchedule.objects.get_or_create(
-                    course_name=f"{item.get('branch')}({item.get('sem')})",
-                    subject=item.get('subject'),
+                ExamSchedule.objects.update_or_create(
                     date=date,
                     session=session,
-                    exam_type=exam_type
+                    subject=item.get('subject'),
+                    defaults={
+                        'course_name': f"{item.get('branch')}({item.get('sem')})",
+                        'exam_type': exam_type
+                    }
                 )
 
+            # --- CRITICAL FIX: Update StaffAvailability for ALL staff on this day ---
+            # This changes the "Regular" default to the actual exam_type from your form
+            StaffAvailability.objects.filter(
+                exam_date=date, 
+                session=session
+            ).update(exam_type=exam_type)
+
             # 2. Identify rooms for this date/session that don't have a staff assigned yet
-            # Note: Field name is 'room', not 'classroom' based on your models.py
             assigned_room_ids = DutyAssignment.objects.filter(
                 date=date, 
                 session=session
@@ -401,11 +410,11 @@ def insert_exam_schedule(request):
             ).exclude(id__in=assigned_room_ids).order_by('id')
 
             # 3. Get Staff who are available (is_assigned=False)
-            # We use select_for_update() to prevent two admins from clicking at once
             available_staff_records = StaffAvailability.objects.select_for_update().filter(
                 exam_date=date,
                 session=session,
-                is_assigned=False # Changed from is_available to match your model's flag
+                is_assigned=False,
+                is_available=True  # Ensure they are actually marked as available
             ).order_by('id')
 
             staff_list = list(available_staff_records)
@@ -415,9 +424,6 @@ def insert_exam_schedule(request):
             for i, room_obj in enumerate(available_rooms):
                 if i < len(staff_list):
                     avail_record = staff_list[i]
-                    
-                    # Get the StaffManagement profile linked to the User
-                    # availability.staff is a User; DutyAssignment.staff is StaffManagement
                     staff_profile = getattr(avail_record.staff, 'staffmanagement', None)
                     
                     if staff_profile:
@@ -432,14 +438,22 @@ def insert_exam_schedule(request):
                             }
                         )
 
-                        # Mark as assigned so they aren't picked again
+                        # Update the availability record
                         avail_record.is_assigned = True
                         avail_record.save()
 
-                        # Increment the specific duty count
-                        staff_profile.regular_duty_count += 1
-                        staff_profile.save()
+                        # --- CORRECT COUNTER LOGIC ---
+                        etype = str(exam_type).lower()
+                        if 'internal 1' in etype or 'internal test 1' in etype:
+                            staff_profile.internal1_duty_count += 1
+                        elif 'internal 2' in etype or 'internal test 2' in etype:
+                            staff_profile.internal2_duty_count += 1
+                        elif 'supply' in etype:
+                            staff_profile.supply_duty_count += 1
+                        else:
+                            staff_profile.regular_duty_count += 1
                         
+                        staff_profile.save()
                         assignments_made += 1
                 else:
                     break
@@ -450,7 +464,7 @@ def insert_exam_schedule(request):
 
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
+        
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_all_exams(request):

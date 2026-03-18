@@ -103,6 +103,7 @@ const ExamDutyView = ({ token }) => {
     </div>
 </div>
 
+
             {/* SECTION 2: CLASSROOM ALLOCATIONS */}
             <div className="card">
                 <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

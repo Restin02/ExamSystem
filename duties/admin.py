@@ -4,6 +4,7 @@ from .models import (
     DutyAssignment, StaffDutyRequirement, StaffAvailability, Timetable
 )
 
+
 @admin.register(StaffAvailability)
 class StaffAvailabilityAdmin(admin.ModelAdmin):
     # Added 'day' and 'exam_date' so you can verify Monday AN logic

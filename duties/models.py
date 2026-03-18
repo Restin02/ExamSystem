@@ -138,6 +138,7 @@ class DutyAssignment(models.Model):
             self.session = self.session or self.room.session
             self.exam_type = self.exam_type or self.room.exam_type
 
+
         if not self.staff:
             # We must use 'exam_date' to match the StaffAvailability model
             match = StaffAvailability.objects.filter(
@@ -441,17 +442,80 @@ def check_staff_slot_status(staff_user, exam_date, session):
 @receiver(post_save, sender=ClassroomSetup)
 def allocate_staff_to_classroom(sender, instance, created, **kwargs):
     """
-    When a classroom is created, we just create a blank DutyAssignment.
-    The DutyAssignment.save() method (above) will handle the FIFO matching.
+    When a classroom is created, automatically find the next 
+    available staff member and assign them to this room.
     """
     if created:
         try:
-            # We don't need transaction.atomic here because .save() handles it
-            DutyAssignment.objects.create(
-                room=instance,
-                date=instance.date,
-                session=instance.session,
-                exam_type=instance.exam_type
-            )
+            with transaction.atomic():
+                # 1. Try to find an existing exam schedule to get the correct Exam Type
+                exam = ExamSchedule.objects.filter(
+                    date=instance.date, 
+                    session=instance.session
+                ).first()
+                
+                exam_type = exam.exam_type if exam else "Regular"
+
+                # 2. Find the first available staff member for this slot
+                # We filter by is_available=True and is_assigned=False
+                avail_record = StaffAvailability.objects.select_for_update().filter(
+                    exam_date=instance.date,
+                    session=instance.session,
+                    is_available=True,
+                    is_assigned=False
+                ).order_by('id').first() # FIFO: Picks the one who was added first
+
+                if avail_record:
+                    staff_profile = getattr(avail_record.staff, 'staffmanagement', None)
+                    
+                    if staff_profile:
+                        # 3. Create the Duty Assignment with the staff linked
+                        DutyAssignment.objects.create(
+                            room=instance,
+                            date=instance.date,
+                            session=instance.session,
+                            staff=staff_profile,
+                            exam_type=exam_type
+                        )
+
+                        # 4. Mark staff as assigned
+                        avail_record.is_assigned = True
+                        avail_record.save()
+
+                        # 5. Increment the correct duty counter
+                        etype = str(exam_type).lower()
+                        if 'internal 1' in etype:
+                            staff_profile.internal1_duty_count += 1
+                        elif 'internal 2' in etype:
+                            staff_profile.internal2_duty_count += 1
+                        else:
+                            staff_profile.regular_duty_count += 1
+                        staff_profile.save()
+                    
+                else:
+                    # If no staff is available yet, create an empty assignment
+                    # This allows admin to manually assign later
+                    DutyAssignment.objects.create(
+                        room=instance,
+                        date=instance.date,
+                        session=instance.session,
+                        exam_type=exam_type
+                    )
+                    
         except Exception as e:
-            logger.error(f"Error triggering duty assignment: {e}")
+            print(f"Error in auto-allocation: {e}")
+
+
+@receiver(post_save, sender=ExamSchedule)
+def sync_staff_availability_exam_type(sender, instance, **kwargs):
+    """
+    Ensures that when an exam is created, all staff availability 
+    records for that day/session reflect the correct exam type 
+    (Internal 1, 2, etc.) instead of the default 'Regular'.
+    """
+    from .models import StaffAvailability
+    
+    StaffAvailability.objects.filter(
+        exam_date=instance.date,
+        session=instance.session
+    ).update(exam_type=instance.exam_type)

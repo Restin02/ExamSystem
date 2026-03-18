@@ -17,6 +17,7 @@ urlpatterns = [
     path('admin/get-all-staff/', views.get_all_staff, name='get_all_staff'),
     path('admin/delete-staff/<str:username>/', views.delete_staff, name='delete_staff'),
     
+    
     # Room Management
     path('admin/get-rooms/', views.get_rooms, name='get_rooms'),
     path('admin/insert-room/', views.insert_classroom, name='insert_classroom'),
