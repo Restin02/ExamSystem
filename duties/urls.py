@@ -34,15 +34,20 @@ urlpatterns = [
     path('admin/save-structure/', views.save_structure, name='save-structure'),
 
     # --- 3. Staff / User Actions ---
-    path('profile/', ProfileView.as_view(), name='get_profile'),
-    path('update-profile/', UpdateProfileView.as_view(), name='update_profile'),
+    path('upload-image/', views.upload_profile_image, name='upload_profile_image'),
+    
+    path('profile/', views.ProfileView.as_view(), name='get_profile'),
+    path('update-profile/', views.UpdateProfileView.as_view(), name='update_profile'),
     
     # Dashboard & Profile Features
     path('staff/my-dashboard/', views.staff_dashboard, name='staff_dashboard'),
     path('staff/upload-image/', views.upload_profile_image, name='upload_profile_image'),
+    path('staff/exam-duties/', views.get_exam_duty_data, name='staff-exam-duties'),
     
     # --- 4. Logic & Allocation ---
     path('allocate/', views.allocate_duties, name='allocate_duties'),
     path('duties/', views.get_duties, name='get_duties'),
     path('admin/get-allocated-duties/', views.get_allocated_duties, name='get-allocated-duties'),
+    path('admin/get-duty-assignments/', views.get_duty_assignments, name='get_duty_assignments'),
+
 ]

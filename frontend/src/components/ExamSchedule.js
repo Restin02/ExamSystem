@@ -30,52 +30,7 @@ const ExamSchedule = ({ departments, token, renderBranchOptions, renderSemesterO
         };
     };
 
-    // --- SORTING & FILTERING LOGIC ---
-    // Combined logic to sort by Date (ascending) and Session (FN before AN)
-    const processedSchedules = useMemo(() => {
-        return [...savedSchedules]
-            .filter(item => {
-                const matchesDate = filterDate === '' || item.date === filterDate;
-                const matchesDept = filterDept === '' || (item.course_name && item.course_name.includes(filterDept));
-                return matchesDate && matchesDept;
-            })
-            .sort((a, b) => {
-                // 1. Sort by Date first
-                const dateDiff = new Date(a.date) - new Date(b.date);
-                if (dateDiff !== 0) return dateDiff;
-
-                // 2. Sort by Session (FN comes before AN)
-                // We compare 'FN' and 'AN'. Since 'F' > 'A', localeCompare would put AN first.
-                // We reverse it to ensure FN is first.
-                return b.session.localeCompare(a.session);
-            });
-    }, [savedSchedules, filterDate, filterDept]);
-
-    // --- PDF GENERATION (Uses the Sorted Data) ---
-    const generatePDF = () => {
-        const doc = new jsPDF('landscape');
-        doc.setFontSize(18);
-        doc.text("EXAM SCHEDULE REPORT", 148, 15, { align: "center" });
-        
-        const tableColumn = ["Date", "Day", "Exam Type", "Session", "Course/Branch", "Subject"];
-        const tableRows = processedSchedules.map(item => {
-            const { dayName, dateNum } = formatDateParts(item.date);
-            return [dateNum, dayName, item.exam_type, item.session, item.course_name, item.subject];
-        });
-
-        autoTable(doc, {
-            head: [tableColumn],
-            body: tableRows,
-            startY: 25,
-            theme: 'grid',
-            headStyles: { fillColor: [44, 62, 80], halign: 'center' },
-            styles: { fontSize: 9 }
-        });
-
-        doc.save(`Exam_Schedule_${new Date().toLocaleDateString()}.pdf`);
-    };
-
-    // 2. Fetch Data
+    // --- FETCH DATA ---
     const fetchSchedules = useCallback(async () => {
         setLoading(true);
         try {
@@ -92,22 +47,25 @@ const ExamSchedule = ({ departments, token, renderBranchOptions, renderSemesterO
 
     useEffect(() => { fetchSchedules(); }, [fetchSchedules]);
 
-    const handleDeleteSchedule = async (id) => {
-        if (window.confirm("Delete this schedule?")) {
-            try {
-                await axios.delete(`http://127.0.0.1:8000/api/admin/delete-exam-schedule/${id}//`, {
-                    headers: { 'Authorization': `Token ${token}` }
-                });
-                setSavedSchedules(prev => prev.filter(exam => exam.id !== id));
-            } catch (err) { alert("Failed to delete."); }
+    // --- HANDLERS ---
+    
+    // UPDATED: key changed from 'rules' to 'duties' to match Django request.data.get('duties')
+    const saveStaffSettings = async () => {
+        if (!window.confirm("This will overwrite existing duty counts for all staff in these grades. Continue?")) return;
+        try {
+            setLoading(true);
+            await axios.post('http://127.0.0.1:8000/api/admin/update-staff-duty-counts/', 
+                { duties: staffGradeDuty }, 
+                { headers: { 'Authorization': `Token ${token}` } }
+            );
+            alert("Staff duty counts updated successfully!");
+        } catch (err) {
+            alert("Failed to update staff counts. Check console for details.");
+            console.error(err);
+        } finally {
+            setLoading(false);
         }
     };
-
-    // Helpers for form
-    const addMoreExamEntry = () => setExamEntries([...examEntries, { dept: 'B.Tech', branch: '', sem: 'S1', subject: '' }]);
-    const updateEntry = (idx, f, v) => { const u = [...examEntries]; u[idx][f] = v; setExamEntries(u); };
-    const addStaffGrade = () => setStaffGradeDuty([...staffGradeDuty, { grade: 'Assistant Professor', examType: 'Internal Test 1', count: '' }]);
-    const updateStaffDuty = (idx, f, v) => { const u = [...staffGradeDuty]; u[idx][f] = v; setStaffGradeDuty(u); };
 
     const handleExamSubmit = async (e) => {
         e.preventDefault();
@@ -121,12 +79,71 @@ const ExamSchedule = ({ departments, token, renderBranchOptions, renderSemesterO
         } catch (err) { alert("Error saving."); }
     };
 
+    const handleDeleteSchedule = async (id) => {
+        if (window.confirm("Delete this schedule? This will refund staff duty counts.")) {
+            try {
+                await axios.delete(`http://127.0.0.1:8000/api/admin/delete-exam-schedule/${id}/`, {
+                    headers: { 'Authorization': `Token ${token}` }
+                });
+                setSavedSchedules(prev => prev.filter(exam => exam.id !== id));
+            } catch (err) { alert("Failed to delete."); }
+        }
+    };
+
+    // Helpers for dynamic rows
+    const addMoreExamEntry = () => setExamEntries([...examEntries, { dept: 'B.Tech', branch: '', sem: 'S1', subject: '' }]);
+    const updateEntry = (idx, f, v) => { const u = [...examEntries]; u[idx][f] = v; setExamEntries(u); };
+    const addStaffGrade = () => setStaffGradeDuty([...staffGradeDuty, { grade: 'Assistant Professor', examType: 'Internal Test 1', count: '' }]);
+    const updateStaffDuty = (idx, f, v) => { const u = [...staffGradeDuty]; u[idx][f] = v; setStaffGradeDuty(u); };
+
+    // --- SORTING & FILTERING ---
+    const processedSchedules = useMemo(() => {
+        return [...savedSchedules]
+            .filter(item => {
+                const matchesDate = filterDate === '' || item.date === filterDate;
+                const matchesDept = filterDept === '' || (item.course_name && item.course_name.toLowerCase().includes(filterDept.toLowerCase()));
+                return matchesDate && matchesDept;
+            })
+            .sort((a, b) => {
+                const dateDiff = new Date(a.date) - new Date(b.date);
+                if (dateDiff !== 0) return dateDiff;
+                return b.session.localeCompare(a.session);
+            });
+    }, [savedSchedules, filterDate, filterDept]);
+
+    const generatePDF = () => {
+        const doc = new jsPDF('landscape');
+        doc.setFontSize(18);
+        doc.text("EXAM SCHEDULE REPORT", 148, 15, { align: "center" });
+        const tableColumn = ["Date", "Day", "Exam Type", "Session", "Course/Branch", "Subject"];
+        const tableRows = processedSchedules.map(item => {
+            const { dayName, dateNum } = formatDateParts(item.date);
+            return [dateNum, dayName, item.exam_type, item.session, item.course_name, item.subject];
+        });
+        autoTable(doc, {
+            head: [tableColumn], body: tableRows, startY: 25, theme: 'grid',
+            headStyles: { fillColor: [44, 62, 80], halign: 'center' }, styles: { fontSize: 9 }
+        });
+        doc.save(`Exam_Schedule_${new Date().toLocaleDateString()}.pdf`);
+    };
+
     return (
         <div className="tab-section" style={{ padding: '25px', backgroundColor: '#f8fafc' }}>
             
-            {/* --- SECTION 1: STAFF DUTY SETTINGS --- */}
+            {/* SECTION 1: STAFF DUTY SETTINGS */}
             <div style={{ background: '#fff', padding: '20px', borderRadius: '12px', marginBottom: '30px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
-                <h3 style={{ marginTop: 0, color: '#1e293b', fontSize: '1.2rem' }}>⚙️ Staff Duty Settings</h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                    <h3 style={{ margin: 0, color: '#1e293b', fontSize: '1.2rem' }}>⚙️ Staff Duty Settings</h3>
+                    <button 
+                        type="button" 
+                        onClick={saveStaffSettings} 
+                        className="btn-save" 
+                        style={{ background: '#059669', color: 'white', padding: '8px 20px', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}
+                    >
+                        Update Staff Counts
+                    </button>
+                </div>
+                
                 {staffGradeDuty.map((duty, index) => (
                     <div key={index} style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
                         <select className="admin-select" style={{ flex: 1 }} value={duty.grade} onChange={e => updateStaffDuty(index, 'grade', e.target.value)}>
@@ -143,10 +160,10 @@ const ExamSchedule = ({ departments, token, renderBranchOptions, renderSemesterO
                         <button type="button" onClick={() => setStaffGradeDuty(staffGradeDuty.filter((_, i) => i !== index))} className="btn-delete-outline">×</button>
                     </div>
                 ))}
-                <button type="button" onClick={addStaffGrade} style={{ background: '#64748b', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer' }}>+ Add Rule</button>
+                <button type="button" onClick={addStaffGrade} style={{ background: '#64748b', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer' }}>+ Add Rule Row</button>
             </div>
 
-            {/* --- SECTION 2: CREATE SCHEDULE --- */}
+            {/* SECTION 2: CREATE SCHEDULE */}
             <div style={{ background: '#fff', padding: '25px', borderRadius: '12px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)', marginBottom: '30px' }}>
                 <h3 style={{ color: '#1e293b', marginBottom: '20px' }}>📅 Create New Exam Schedule</h3>
                 <form onSubmit={handleExamSubmit}>
@@ -182,17 +199,21 @@ const ExamSchedule = ({ departments, token, renderBranchOptions, renderSemesterO
                         </div>
                     ))}
                     <div style={{ marginTop: '15px' }}>
-                        <button type="button" onClick={addMoreExamEntry} className="btn-save" style={{ background: '#94a3b8' }}>+ Add Subject</button>
-                        <button type="submit" className="btn-save" style={{ marginLeft: '10px', background: '#2d3748' }}>Save Schedule</button>
+                        <button type="button" onClick={addMoreExamEntry} className="btn-save" style={{ background: '#94a3b8', color: 'white', padding: '10px 15px', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>+ Add Subject</button>
+                        <button type="submit" className="btn-save" style={{ marginLeft: '10px', background: '#2d3748', color: 'white', padding: '10px 15px', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Save Schedule</button>
                     </div>
                 </form>
             </div>
 
-            {/* --- SECTION 3: DISPLAY LIST (SORTED) --- */}
+            {/* SECTION 3: DISPLAY LIST */}
             <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                     <h3 style={{ color: '#1e293b', fontWeight: '800' }}>Saved Exam Schedules</h3>
                     <div style={{ display: 'flex', gap: '10px' }}>
+                        <select className="admin-select" style={{ width: '150px' }} value={filterDept} onChange={(e) => setFilterDept(e.target.value)}>
+                            <option value="">All Departments</option>
+                            {departments.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
+                        </select>
                         <input type="date" className="admin-input" style={{ width: '150px' }} value={filterDate} onChange={(e) => setFilterDate(e.target.value)} />
                         <button onClick={generatePDF} style={{ padding: '8px 15px', backgroundColor: '#27ae60', color: 'white', border: 'none', borderRadius: '6px', fontWeight: '600', cursor: 'pointer' }}>Download PDF</button>
                     </div>
@@ -215,31 +236,23 @@ const ExamSchedule = ({ departments, token, renderBranchOptions, renderSemesterO
                                 const { dayName, dateNum } = formatDateParts(item.date);
                                 const typeStyle = getExamTypeStyles(item.exam_type);
                                 return (
-                                    <tr key={item.id || idx} style={{ 
-                                        borderBottom: '1px solid #edf2f7',
-                                        backgroundColor: item.session === 'FN' ? '#fff' : '#fcfcfc' // Subtle tint for AN
-                                    }}>
+                                    <tr key={item.id || idx} style={{ borderBottom: '1px solid #edf2f7', backgroundColor: item.session === 'FN' ? '#fff' : '#fcfcfc' }}>
                                         <td style={{ padding: '15px', borderLeft: item.session === 'FN' ? '4px solid #2563eb' : '4px solid #d97706' }}>
                                             <div style={{ fontWeight: '800', color: '#2563eb', fontSize: '13px' }}>{dayName}</div>
                                             <div style={{ fontSize: '11px', color: '#64748b' }}>{dateNum}</div>
                                         </td>
                                         <td style={{ padding: '15px', textAlign: 'center' }}>
-                                            <span style={{ 
-                                                display: 'inline-block', padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', 
-                                                backgroundColor: typeStyle.bg, color: typeStyle.color, border: `1px solid ${typeStyle.border}`, marginBottom: '5px'
-                                            }}>
+                                            <span style={{ display: 'inline-block', padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', backgroundColor: typeStyle.bg, color: typeStyle.color, border: `1px solid ${typeStyle.border}`, marginBottom: '5px' }}>
                                                 {item.exam_type}
                                             </span><br/>
-                                            <span style={{ fontSize: '11px', fontWeight: '800', color: item.session === 'FN' ? '#2563eb' : '#d97706' }}>
-                                                {item.session}
-                                            </span>
+                                            <span style={{ fontSize: '11px', fontWeight: '800', color: item.session === 'FN' ? '#2563eb' : '#d97706' }}>{item.session}</span>
                                         </td>
                                         <td style={{ padding: '15px' }}>
                                             <div style={{ fontWeight: '600', color: '#1e293b', fontSize: '13px' }}>{item.course_name}</div>
                                         </td>
                                         <td style={{ padding: '15px', color: '#475569', fontSize: '13px' }}>{item.subject}</td>
                                         <td style={{ padding: '15px', textAlign: 'center' }}>
-                                            <button onClick={() => handleDeleteSchedule(item.id)} className="btn-delete-outline" style={{ fontSize: '11px' }}>Delete</button>
+                                            <button onClick={() => handleDeleteSchedule(item.id)} className="btn-delete-outline" style={{ fontSize: '11px', cursor: 'pointer' }}>Delete</button>
                                         </td>
                                     </tr>
                                 );

@@ -4,7 +4,8 @@ from django.contrib.auth.models import User
 from django.http import HttpResponse
 from django.db import transaction
 from django.conf import settings
-
+from django.db.models.functions import Greatest
+from django.http import JsonResponse
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.authtoken.views import ObtainAuthToken
@@ -12,13 +13,17 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.authtoken.models import Token
 from rest_framework.views import APIView
-
+from django.shortcuts import get_object_or_404
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.decorators import api_view, permission_classes, parser_classes
+from .serializers import AvailabilitySerializer, AssignmentSerializer
 # Import all models including Department and Branch
 from .models import (
     StaffManagement, StaffAvailability, ExamSchedule, ClassroomSetup, 
     DutyAssignment, StaffDutyRequirement, Department, Branch
 )
 from .serializers import DutyAssignmentSerializer
+from .serializers import AvailabilitySerializer, AllocationSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +144,7 @@ def get_all_staff(request):
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
 def update_staff_duty_counts(request):
+    # Retrieve 'duties' list from the request
     duties = request.data.get('duties', [])
     if not duties:
         return Response({"error": "No duty data provided"}, status=400)
@@ -148,17 +154,23 @@ def update_staff_duty_counts(request):
             for item in duties:
                 grade = item.get('grade')
                 exam_type = item.get('examType')
-                count = int(item.get('count', 0))
+                # Ensure count is treated as an integer
+                try:
+                    count = int(item.get('count', 0))
+                except (ValueError, TypeError):
+                    count = 0
 
                 if not grade or not exam_type:
                     continue
 
+                # 1. Update the master requirement rule table
                 StaffDutyRequirement.objects.update_or_create(
                     staff_grade=grade,
                     exam_type=exam_type,
                     defaults={'required_count': count}
                 )
 
+                # 2. Update the actual staff records for the selected grade
                 staff_subset = StaffManagement.objects.filter(grade=grade)
 
                 if "Internal Test 1" in exam_type:
@@ -216,39 +228,144 @@ def get_staff_timetable(request, username):
 def insert_classroom(request):
     try:
         data = request.data
-        # 1. Added 'session' to the validation check
-        required_fields = ['block', 'room_no', 'capacity', 'session', 'date']
+        
+        # 1. Validation: Ensure all necessary fields for the new model are present
+        required_fields = ['block', 'room_no', 'capacity', 'date', 'exam_type', 'session']
         if not all(data.get(field) for field in required_fields):
-            return Response({"error": "Missing required fields (block, room_no, capacity, session, date)"}, status=400)
+            return Response({
+                "error": "Missing required fields. Ensure block, room_no, capacity, date, exam_type, and session are provided."
+            }, status=400)
 
-        # 2. Saving to the model including session and date
+        # 2. Data Cleaning: Ensure capacity is an integer
+        try:
+            capacity_val = int(data.get('capacity'))
+        except (ValueError, TypeError):
+            return Response({"error": "Capacity must be a valid number."}, status=400)
+
+        # 3. Database Creation
         ClassroomSetup.objects.create(
             block=data.get('block'),
             room_no=data.get('room_no'),
-            capacity=data.get('capacity'),
+            capacity=capacity_val,
+            date=data.get('date'),
             exam_type=data.get('exam_type'),
-            session=data.get('session'), # Added this
-            date=data.get('date')
+            session=data.get('session')
         )
-        return Response({"message": "Saved to Classroom Setup!"}, status=201)
+
+        return Response({"message": "Successfully saved to Classroom Setup!"}, status=201)
+
     except Exception as e:
+        # 4. Error Logging (Helpful for debugging)
+        print(f"Error saving classroom: {str(e)}")
         return Response({"error": f"Database Error: {str(e)}"}, status=400)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_rooms(request):
-    # 3. Improved ordering: order by date descending, then by session
-    rooms = ClassroomSetup.objects.all().order_by('-date', 'session', 'block')
-    
+    rooms = ClassroomSetup.objects.all().order_by('-id')
     data = [{
         "id": r.id, 
         "block": r.block, 
         "room_no": r.room_no, 
         "capacity": r.capacity,
-        "session": r.session, # Added this to the response
+        "exam_type": r.exam_type,
+        "session": r.session,
         "date": r.date.strftime('%Y-%m-%d') if r.date else None 
     } for r in rooms]
     return Response(data)
+
+@api_view(['POST'])
+def save_classroom_setup(request):
+    # 1. Get data from your frontend form
+    date = request.data.get('date')
+    session = request.data.get('session')
+    rooms_data = request.data.get('rooms') # Assuming a list of rooms
+    
+    # 2. Save your rooms and trigger the auto-allocation
+    for room_info in rooms_data:
+        room = ClassroomSetup.objects.create(
+            date=date,
+            session=session,
+            block=room_info['block'],
+            room_no=room_info['room_no'],
+            exam_type=request.data.get('exam_type')
+        )
+        
+        # This creates the duty and automatically picks the FIFO staff 
+        # because of the save() method we added to the DutyAssignment model
+        DutyAssignment.objects.create(room=room)
+
+    # ==========================================================
+    # PASTE THE BALANCE LOGIC HERE
+    # ==========================================================
+    # After all rooms are created and staff assigned, 
+    # find the staff who didn't get a room and "charge" them a duty.
+    
+    balance_staff = StaffAvailability.objects.filter(
+        date=date, 
+        session=session, 
+        is_assigned=False
+    )
+    
+    for record in balance_staff:
+        # Increase their count so they don't get an advantage over others
+        record.staff.duty_count += 1
+        record.staff.save()
+        
+    # Finally, remove them from availability so they don't show up as 'available'
+    balance_staff.delete()
+    # ==========================================================
+
+    return Response({"message": "Classrooms created and staff allocated!"})
+
+
+@transaction.atomic
+def auto_allocate_duty(classroom_id):
+    # 1. Get the classroom that was just created/saved
+    room = get_object_or_404(ClassroomSetup, id=classroom_id)
+    
+    # 2. Look for available staff matching the exact Date and Session
+    # Order by id to ensure FIFO (First-In, First-Out)
+    available_staff_record = StaffAvailability.objects.filter(
+        date=room.date,
+        session=room.session,
+        is_assigned=False
+    ).order_by('id').first()
+
+    if available_staff_record:
+        staff_member = available_staff_record.staff
+        
+        # 3. Create the final Duty Assignment
+        DutyAssignment.objects.create(
+            staff=staff_member,
+            room=room,
+            date=room.date,
+            session=room.session,
+            exam_type=room.exam_type
+        )
+        
+        # 4. Update Staff status so they aren't picked twice for the same time
+        staff_member.duty_count += 1
+        staff_member.save()
+        
+        # 5. Mark this availability slot as "Used"
+        available_staff_record.is_assigned = True
+        available_staff_record.save()
+        
+        return True
+    return False
+
+# Cleanup logic for unallocated staff on the same day
+def cleanup_unused_staff(date, session):
+    unused = StaffAvailability.objects.filter(
+        date=date, 
+        session=session, 
+        is_assigned=False
+    )
+    for record in unused:
+        record.staff.duty_count += 1 # Increase count even if not used
+        record.staff.save()
+        record.delete() # Remove from pool as requested
 
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
@@ -258,34 +375,81 @@ def insert_exam_schedule(request):
         with transaction.atomic():
             date = data.get('date')
             session = data.get('session', 'FN')
-            exam_type = data.get('examType', 'Regular Exam') 
-            # Default time slot if not provided by frontend
-            time_slot = data.get('time_slot', '9:30 AM - 12:30 PM' if session == 'FN' else '1:30 PM - 4:30 PM')
-            
+            exam_type = data.get('examType', 'Regular Exam')
             schedules = data.get('schedules', [])
 
-            if not schedules:
-                return Response({"error": "No schedule data provided"}, status=400)
-
+            # 1. Create/Update Exam Schedules
             for item in schedules:
-                # CRITICAL: Added time_slot which is mandatory in your model
-                ExamSchedule.objects.create(
+                ExamSchedule.objects.get_or_create(
                     course_name=f"{item.get('branch')}({item.get('sem')})",
                     subject=item.get('subject'),
                     date=date,
-                    time_slot=time_slot, 
                     session=session,
                     exam_type=exam_type
                 )
-                
+
+            # 2. Identify rooms for this date/session that don't have a staff assigned yet
+            # Note: Field name is 'room', not 'classroom' based on your models.py
+            assigned_room_ids = DutyAssignment.objects.filter(
+                date=date, 
+                session=session
+            ).exclude(staff__isnull=True).values_list('room_id', flat=True)
+
+            available_rooms = ClassroomSetup.objects.filter(
+                date=date, 
+                session=session
+            ).exclude(id__in=assigned_room_ids).order_by('id')
+
+            # 3. Get Staff who are available (is_assigned=False)
+            # We use select_for_update() to prevent two admins from clicking at once
+            available_staff_records = StaffAvailability.objects.select_for_update().filter(
+                exam_date=date,
+                session=session,
+                is_assigned=False # Changed from is_available to match your model's flag
+            ).order_by('id')
+
+            staff_list = list(available_staff_records)
+            assignments_made = 0
+
+            # 4. Pair them up
+            for i, room_obj in enumerate(available_rooms):
+                if i < len(staff_list):
+                    avail_record = staff_list[i]
+                    
+                    # Get the StaffManagement profile linked to the User
+                    # availability.staff is a User; DutyAssignment.staff is StaffManagement
+                    staff_profile = getattr(avail_record.staff, 'staffmanagement', None)
+                    
+                    if staff_profile:
+                        # Create or update the DutyAssignment
+                        DutyAssignment.objects.update_or_create(
+                            room=room_obj,
+                            date=date,
+                            session=session,
+                            defaults={
+                                'staff': staff_profile,
+                                'exam_type': exam_type
+                            }
+                        )
+
+                        # Mark as assigned so they aren't picked again
+                        avail_record.is_assigned = True
+                        avail_record.save()
+
+                        # Increment the specific duty count
+                        staff_profile.regular_duty_count += 1
+                        staff_profile.save()
+                        
+                        assignments_made += 1
+                else:
+                    break
+
         return Response({
-            "message": "Saved successfully! Staff availability has been auto-calculated."
-        }, status=201)
+            "message": f"Successfully created schedules and assigned {assignments_made} staff."
+        }, status=status.HTTP_201_CREATED)
 
     except Exception as e:
-        # This will catch missing fields or errors in the background Signal
-        print(f"Error saving schedule: {str(e)}") 
-        return Response({"error": f"Database Error: {str(e)}"}, status=400)
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -305,10 +469,61 @@ def get_all_exams(request):
         })
     return Response(data)
 
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_duty_assignments(request):
+    start_date = request.GET.get('start')
+    end_date = request.GET.get('end')
+
+    # Filter assignments and pre-fetch related data to avoid 'N/A'
+    assignments = DutyAssignment.objects.filter(
+        date__range=[start_date, end_date]
+    ).select_related('staff', 'room').order_by('date', 'session')
+
+    data = []
+    for duty in assignments:
+        data.append({
+            "exam_date": duty.date.strftime('%d %b %Y') if duty.date else "No Date",
+            "exam_session": duty.session or "N/A",
+            "exam_type": duty.exam_type or "N/A",
+            "block_name": duty.room.block if duty.room else "N/A",
+            "room_name": duty.room.room_no if duty.room else "N/A", # Ensure this is room_no
+            "staff_name": duty.staff.name if duty.staff else "Waiting...",
+            "department": duty.staff.department if duty.staff else "N/A",
+            "branch": duty.staff.branch if duty.staff else "N/A",
+            "grade": duty.staff.grade if duty.staff else "N/A",
+        })
+
+    return JsonResponse(data, safe=False)
+
+def finalize_allocations_for_day(date, session):
+    """
+    Call this after all classrooms for a specific slot have been saved.
+    It clears out the remaining 'Balance' staff.
+    """
+    from .models import StaffAvailability
+    
+    remaining_staff = StaffAvailability.objects.filter(
+        date=date,
+        session=session,
+        is_assigned=False
+    )
+    
+    for record in remaining_staff:
+        # Increase count as they were 'ready' for duty
+        record.staff.duty_count += 1
+        record.staff.save()
+        # Remove them from the availability pool as per your FIFO rule
+        record.delete()
+
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 def get_allocated_duties(request):
-    # Get dates from the React request (?start=YYYY-MM-DD&end=YYYY-MM-DD)
+    """
+    Fetches staff duties and accurately maps them to the specific course 
+    they were assigned to, even if multiple exams happen in the same slot.
+    """
     start_date = request.query_params.get('start')
     end_date = request.query_params.get('end')
 
@@ -316,42 +531,48 @@ def get_allocated_duties(request):
         return Response({"error": "Please provide both start and end dates"}, status=400)
 
     try:
-        # 1. Fetch records within the range that were marked available
+        # 1. Fetch availability records within range. 
+        # We use select_related('staff') to reduce database hits.
         availabilities = StaffAvailability.objects.filter(
             exam_date__range=[start_date, end_date],
             is_available=True
-        ).select_related('staff')
+        ).select_related('staff').order_by('exam_date', 'session')
 
         results = []
         for record in availabilities:
-            # 2. Link to StaffManagement to get profile details
-            try:
-                profile = StaffManagement.objects.get(user=record.staff)
-                display_name = profile.name or record.staff.username
-                branch_name = profile.branch or "—"
-                dept_name = profile.department or "—"
-                grade_val = profile.grade or "—"
-            except StaffManagement.DoesNotExist:
-                # Fallback if profile is missing
-                display_name = record.staff.username
-                branch_name = "—"
-                dept_name = "—"
-                grade_val = "—"
+            # Get the staff profile for Dept/Branch/Grade info
+            profile = StaffManagement.objects.filter(user=record.staff).first()
+            
+            # 2. MATCHING LOGIC: 
+            # We first check if the availability record itself has the course_name.
+            # Then we look up the ExamSchedule for the specific "Exam Type".
+            schedule_item = ExamSchedule.objects.filter(
+                date=record.exam_date, 
+                session=record.session,
+                course_name=record.course_name # Link by specific course
+            ).first()
 
+            # 3. Determine specific exam details
+            # If राजेश is linked to IMCA S2, this will correctly show IMCA S2.
+            exam_type = schedule_item.exam_type if schedule_item else "Regular"
+            
             results.append({
-                "name": display_name,
-                "date": record.exam_date.strftime('%Y-%m-%d') if hasattr(record.exam_date, 'strftime') else record.exam_date,
+                "id": record.id,
+                "name": getattr(profile, 'name', f"{record.staff.first_name} {record.staff.last_name}"),
+                "date": record.exam_date.strftime('%Y-%m-%d'),
                 "session": record.session,
-                "branch": branch_name,
-                "department": dept_name,  # Added this field
-                "grade": grade_val        # Added this field
+                "exam_type": exam_type,
+                "course_name": record.course_name, # Critical: "IMCA S2" vs "IMCA S8"
+                "department": getattr(profile, 'department', "MCA"),
+                "branch": getattr(profile, 'branch', "MCA"),
+                "grade": getattr(profile, 'grade', "Assistant Professor")
             })
 
         return Response({"allocated_staff": results}, status=200)
 
     except Exception as e:
-        return Response({"error": f"Internal Error: {str(e)}"}, status=500)
-
+        logger.error(f"Error in get_allocated_duties: {str(e)}")
+        return Response({"error": "Internal Server Error"}, status=500)
 
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
@@ -413,58 +634,106 @@ def get_available_staff_for_duty(request):
     except Exception as e:
         return Response({"error": str(e)}, status=400)
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_exam_duty_data(request):
+    user = request.user
+    
+    # 1. Fetch Availability (Matches Scenario C: direct User link)
+    availability_qs = StaffAvailability.objects.filter(staff=user)
+    
+    # 2. Fetch Assignments (Matches Scenario A: via StaffManagement link)
+    # We use staff__user because DutyAssignment.staff points to StaffManagement
+    assignments_qs = DutyAssignment.objects.filter(staff__user=user)
+    
+    return Response({
+        "availability": AvailabilitySerializer(availability_qs, many=True).data,
+        "allocations": AssignmentSerializer(assignments_qs, many=True).data
+    })
+
 # --- 5. DASHBOARD & ALLOCATION ---
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def staff_dashboard(request):
     try:
-        profile = getattr(request.user, 'staffmanagement', None)
+        # 1. Fetch the profile
+        profile = get_object_or_404(StaffManagement, user=request.user)
+        
+        # 2. Handle Profile Picture URL
         image_url = None
-        if profile and profile.profile_image:
-            image_url = request.build_absolute_uri(profile.profile_image.url)
+        if profile.profile_pic:
+            image_url = request.build_absolute_uri(profile.profile_pic.url)
+        else:
+            # Fallback to a placeholder if no image exists
+            image_url = "https://via.placeholder.com/150"
 
+        # 3. Return the response
+        # IMPORTANT: Key names here must match the React code exactly
         return Response({
             "profile": {
-                "name": profile.name if profile and profile.name else (request.user.first_name or request.user.username),
+                "name": profile.name or request.user.get_full_name() or request.user.username,
                 "email": request.user.email,
-                "phone": profile.phone_number if profile else "N/A",
-                "grade": profile.grade if profile else "Not Assigned",
-                "department": profile.department if profile else "N/A",
-                "branch": profile.branch if profile else "N/A",
+                "phone_number": profile.phone_number,
+                "grade": profile.grade,  # This will now show correctly
+                "department": profile.department,
+                "branch": profile.branch,
+                "staff_id": profile.staff_id,
                 "image_url": image_url,
-                "internal1_duty_count": profile.internal1_duty_count if profile else 0, 
-                "internal2_duty_count": profile.internal2_duty_count if profile else 0, 
-                "regular_duty_count": profile.regular_duty_count if profile else 0,     
-                "supply_duty_count": profile.supply_duty_count if profile else 0,
+                # Flattening these so React can use data.profile.internal1_duty_count
+                "internal1_duty_count": profile.internal1_duty_count,
+                "internal2_duty_count": profile.internal2_duty_count,
+                "regular_duty_count": profile.regular_duty_count,
+                "supply_duty_count": profile.supply_duty_count,
+                "total_duty_count": profile.duty_count,
             },
-            "timetable": profile.timetable_data if profile else []
+            "timetable": profile.timetable_data or []
         })
     except Exception as e:
-        return Response({"error": str(e)}, status=400)
+        print(f"CRITICAL DASHBOARD ERROR: {str(e)}")
+        return Response({"error": str(e)}, status=500)
+
+import os
+from rest_framework.decorators import api_view, permission_classes, parser_classes
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.response import Response
+from rest_framework import status
+from django.shortcuts import get_object_or_404
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
 def upload_profile_image(request):
     try:
+        # 1. Access the linked StaffManagement profile
         profile = getattr(request.user, 'staffmanagement', None)
         if not profile:
-            return Response({"error": "Staff profile not found"}, status=404)
+            return Response({"error": "Staff profile not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        if 'image' in request.FILES:
-            new_image = request.FILES['image']
-            if profile.profile_image and os.path.isfile(profile.profile_image.path):
-                try:
-                    os.remove(profile.profile_image.path)
-                except:
-                    pass
-            profile.profile_image = new_image
-            profile.save()
-            image_url = request.build_absolute_uri(profile.profile_image.url)
-            return Response({"message": "Image uploaded successfully", "image_url": image_url})
-        return Response({"error": "No image file found in request"}, status=400)
+        # 2. Check if 'profile_pic' exists in the request
+        if 'profile_pic' not in request.FILES:
+            return Response({"error": "No file uploaded. Key must be 'profile_pic'"}, status=status.HTTP_400_BAD_REQUEST)
+
+        new_image = request.FILES['profile_pic']
+
+        # 3. File Cleanup: Delete the old image file from storage if it exists
+        if profile.profile_pic:
+            old_path = profile.profile_pic.path
+            if os.path.exists(old_path):
+                os.remove(old_path)
+
+        # 4. Save the new image
+        profile.profile_pic = new_image
+        profile.save()
+
+        # 5. Return the full URL for React to display immediately
+        return Response({
+            "message": "Image uploaded successfully",
+            "image_url": request.build_absolute_uri(profile.profile_pic.url)
+        }, status=status.HTTP_200_OK)
+
     except Exception as e:
-        return Response({"error": f"Upload failed: {str(e)}"}, status=500)
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['POST'])
 @permission_classes([IsAdminUser])

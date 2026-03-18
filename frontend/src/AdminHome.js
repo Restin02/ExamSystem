@@ -10,9 +10,12 @@ import ClassroomSetup from './components/ClassroomSetup';
 import ExamSchedule from './components/ExamSchedule';
 import DeptSettings from './components/DeptSettings';
 import StaffDutyAllocation from './components/StaffDutyAllocation';
+// New Component
+import StaffClassroomAllocation from './components/StaffClassroomAllocation'; 
 
 const AdminHome = () => {
-    const [activeTab, setActiveTab] = useState('staff','dept-settings');
+    // Corrected state initialization
+    const [activeTab, setActiveTab] = useState('staff');
     const [staffList, setStaffList] = useState([]);
     const [roomList, setRoomList] = useState([]);
     const token = localStorage.getItem('token');
@@ -35,7 +38,6 @@ const AdminHome = () => {
         }
     ]);
 
-    // FIXED SYNTAX: Removed the extra ")" and used a direct window redirect
     const handleLogout = useCallback(() => {
         localStorage.clear(); 
         window.location.href = '/login'; 
@@ -50,7 +52,6 @@ const AdminHome = () => {
             const roomRes = await axios.get('http://127.0.0.1:8000/api/admin/get-rooms/', config);
             setRoomList(roomRes.data);
         } catch (err) {
-            // If the token is dead, log out automatically
             if (err.response?.status === 401) handleLogout();
         }
     }, [token, handleLogout]);
@@ -85,6 +86,12 @@ const AdminHome = () => {
                     <button className={activeTab === 'room' ? 'active' : ''} onClick={() => setActiveTab('room')}>Classroom Setup</button>
                     <button className={activeTab === 'exam' ? 'active' : ''} onClick={() => setActiveTab('exam')}>Exam Schedule</button>
                     <button className={activeTab === 'duty-allocation' ? 'active' : ''} onClick={() => setActiveTab('duty-allocation')}>Staff Exam Duty Allocation</button>
+                    
+                    {/* NEW NAVIGATION BUTTON */}
+                    <button className={activeTab === 'room-allocation' ? 'active' : ''} onClick={() => setActiveTab('room-allocation')}>
+                        Staff Room Assignment
+                    </button>
+
                     <button className={activeTab === 'settings' ? 'active' : ''} onClick={() => setActiveTab('settings')}>Dept Settings</button>
                 </div>
 
@@ -105,6 +112,15 @@ const AdminHome = () => {
                 {activeTab === 'room' && <ClassroomSetup roomList={roomList} token={token} fetchData={fetchData} />}
                 {activeTab === 'exam' && <ExamSchedule departments={departments} token={token} renderBranchOptions={renderBranchOptions} renderSemesterOptions={renderSemesterOptions} />}
                 {activeTab === 'duty-allocation' && (<StaffDutyAllocation departments={departments} />)}
+                
+                {/* NEW COMPONENT VIEW */}
+                {activeTab === 'room-allocation' && (
+                    <StaffClassroomAllocation 
+                        token={token} 
+                        roomList={roomList} 
+                    />
+                )}
+
                 {activeTab === 'settings' && <DeptSettings departments={departments} setDepartments={setDepartments} />}
             </div>
         </div>

@@ -1,0 +1,339 @@
+/* =========================================
+   1. GLOBAL VARIABLES & RESET
+   ========================================= */
+:root {
+    --primary: #3498db;
+    --primary-dark: #2980b9;
+    --sidebar-bg: #2c3e50;
+    --bg-light: #f4f7f6;
+    --text-main: #2c3e50;
+    --text-muted: #818e9b;
+    --success: #2ecc71;
+    --danger: #e74c3c;
+    --dark-card: #1e272e;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body, html {
+    margin: 0;
+    padding: 0;
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-light);
+}
+
+/* =========================================
+   2. LAYOUT STRUCTURE
+   ========================================= */
+.staff-dashboard-root {
+    display: flex;
+    min-height: 100vh;
+}
+
+.staff-container {
+    flex-grow: 1;
+    padding: 20px;
+    max-width: 1240px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+/* =========================================
+   3. SIDE NAVIGATION (SIDEBAR)
+   ========================================= */
+.side-nav {
+    position: fixed;
+    left: -280px; /* Hidden by default */
+    top: 0;
+    width: 280px;
+    height: 100%;
+    background: var(--sidebar-bg);
+    transition: 0.3s ease-in-out;
+    z-index: 1000;
+    padding: 25px;
+    display: flex;
+    flex-direction: column;
+}
+
+.side-nav.open {
+    left: 0;
+}
+
+.nav-header h3 {
+    color: white;
+    margin-bottom: 30px;
+    text-align: center;
+    letter-spacing: 1px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    padding-bottom: 15px;
+}
+
+.nav-links button {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    background: none;
+    border: none;
+    color: #bdc3c7;
+    padding: 14px 18px;
+    cursor: pointer;
+    font-size: 1rem;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    transition: 0.2s;
+}
+
+.nav-links button:hover {
+    background: rgba(255,255,255,0.05);
+    color: white;
+}
+
+.nav-links button.active {
+    background: var(--primary);
+    color: white;
+}
+
+.nav-divider {
+    border: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    margin: 20px 0;
+}
+
+.logout-btn {
+    margin-top: auto;
+    color: var(--danger) !important;
+}
+
+.menu-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 999;
+}
+
+.close-btn {
+    position: absolute;
+    right: 15px;
+    top: 15px;
+    background: none;
+    border: none;
+    color: white;
+    font-size: 1.5rem;
+    cursor: pointer;
+}
+
+/* =========================================
+   4. TOP BAR
+   ========================================= */
+.top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 25px;
+    background: white;
+    padding: 15px 20px;
+    border-radius: 10px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+.menu-trigger {
+    background: var(--sidebar-bg);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+/* =========================================
+   5. PROFILE HEADER CARD
+   ========================================= */
+.staff-header-profile-card {
+    background: linear-gradient(135deg, #2c3e50, #34495e);
+    padding: 30px;
+    border-radius: 15px;
+    color: white;
+    margin-bottom: 30px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+}
+
+.profile-section-horizontal {
+    display: flex;
+    align-items: center;
+    gap: 40px;
+}
+
+.profile-image-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.profile-img {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 4px solid var(--primary);
+    background: white;
+    padding: 3px;
+}
+
+.upload-button-outside {
+    background: var(--primary);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    font-weight: 600;
+    transition: 0.3s;
+}
+
+.upload-button-outside:hover {
+    background: var(--primary-dark);
+    transform: translateY(-2px);
+}
+
+.profile-main-content {
+    flex-grow: 1;
+}
+
+.name-status {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 15px;
+}
+
+.status-pill {
+    background: var(--success);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 800;
+}
+
+.meta-grid-horizontal {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px 30px;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 15px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+}
+
+.meta-item { font-size: 0.9rem; }
+.meta-item strong { color: var(--primary); margin-right: 5px; }
+
+/* Duty Count Bubbles */
+.duty-status-grid-horizontal {
+    display: flex;
+    background: var(--dark-card);
+    padding: 15px;
+    border-radius: 12px;
+}
+
+.duty-item {
+    flex: 1;
+    text-align: center;
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.duty-item:last-child { border: none; }
+.duty-item small { display: block; color: var(--text-muted); font-size: 0.65rem; text-transform: uppercase; }
+.duty-item strong { font-size: 1.4rem; color: #fff; }
+
+/* =========================================
+   6. TABLES & CONTENT
+   ========================================= */
+.timetable-card {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    margin-bottom: 25px;
+}
+
+.staff-view-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.staff-view-table th, .staff-view-table td {
+    padding: 15px;
+    border-bottom: 1px solid #edf2f7;
+    text-align: center;
+}
+
+.day-col { font-weight: bold; background: #f8f9fa; color: var(--text-main); }
+.slot.filled { background: #ebf5fb; color: var(--primary-dark); font-weight: 700; }
+.subject-badge { background: var(--primary); color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; }
+.free-label { color: var(--success); font-size: 0.8rem; font-weight: 600; }
+
+/* Free Hours Section */
+.free-hours-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.free-hour-row {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border: 1px solid #e9ecef;
+}
+
+.free-hour-pill {
+    background: #e8f5e9;
+    color: #2e7d32;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+/* =========================================
+   7. RESPONSIVENESS
+   ========================================= */
+@media (max-width: 850px) {
+    .profile-section-horizontal {
+        flex-direction: column;
+        text-align: center;
+    }
+    .meta-grid-horizontal {
+        grid-template-columns: 1fr;
+    }
+    .duty-status-grid-horizontal {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+    .duty-item {
+        flex: 1 1 40%;
+        border: none;
+    }
+}
+
+.loader {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    font-size: 1.2rem;
+    color: var(--primary);
+    font-weight: 600;
+}

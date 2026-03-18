@@ -1,8 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import Login from './Login';
-import StaffDashboard from './StaffDashboard';
-import Profile from './Profile';
+import StaffHome from './StaffDashboard';
 import AdminHome from './AdminHome';
 
 function App() {
@@ -30,10 +29,7 @@ function App() {
       setIsSuperuser(adminStatus);
     };
 
-    // Check once on mount
     checkAuth();
-
-    // Optional: Listen for storage changes (like manual localstorage clears)
     window.addEventListener('storage', checkAuth);
     return () => window.removeEventListener('storage', checkAuth);
   }, []);
@@ -41,7 +37,7 @@ function App() {
   return (
     <Router>
       <Routes>
-        {/* Login Route: Only one entry. If logged in, it redirects automatically */}
+        {/* Login Route */}
         <Route 
           path="/login" 
           element={
@@ -50,27 +46,21 @@ function App() {
             ) : isSuperuser ? (
               <Navigate to="/admin-home" replace />
             ) : (
-              <Navigate to="/staff-dashboard" replace />
+              <Navigate to="/staff-home" replace /> // Redirect to StaffHome
             )
           } 
         />
 
-        {/* Staff Route - Protected */}
+        {/* Unified Staff Home - Protected */}
         <Route 
-          path="/staff-dashboard" 
-          element={isAuthenticated ? <StaffDashboard /> : <Navigate to="/login" replace />} 
+          path="/staff-home" 
+          element={isAuthenticated ? <StaffHome /> : <Navigate to="/login" replace />} 
         />
 
         {/* Admin Route - Protected */}
         <Route 
           path="/admin-home" 
           element={isAuthenticated && isSuperuser ? <AdminHome /> : <Navigate to="/login" replace />} 
-        />
-
-        {/* Profile Route - Protected */}
-        <Route 
-          path="/profile" 
-          element={isAuthenticated ? <Profile /> : <Navigate to="/login" replace />} 
         />
 
         {/* Default Redirects */}

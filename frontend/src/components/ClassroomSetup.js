@@ -3,26 +3,25 @@ import axios from 'axios';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-const ClassroomSetup = ({ roomList, token, fetchData }) => {
-    const [roomForm, setRoomForm] = useState({ 
-        block: 'AB Block', 
-        room_no: '', 
-        capacity: '', 
+const ClassroomSetup = ({ roomList = [], token, fetchData }) => {
+    // 1. Header & Room Input State (Combined for single submission)
+    const [roomInput, setRoomInput] = useState({
         date: new Date().toISOString().split('T')[0],
         session: 'FN',
-        exam_type: 'Regular' 
+        exam_type: 'Regular',
+        block: 'AB Block',
+        room_no: '',
+        capacity: ''
     });
 
+    // 2. Options
     const [blocks, setBlocks] = useState(['AB Block', 'CLC Block']);
     const [newBlockInput, setNewBlockInput] = useState('');
     
-    // Filters
+    // 3. Filters
     const [filterDate, setFilterDate] = useState('');
-    const [filterBlock, setFilterBlock] = useState('');
-    const [filterSession, setFilterSession] = useState('');
     const [filterType, setFilterType] = useState(''); 
 
-    // --- LOGIC FOR STYLING ---
     const getExamTypeStyles = (type) => {
         const t = type?.toLowerCase() || '';
         if (t.includes('internal')) return { color: '#4a5568', bg: '#f1f5f9', border: '#cbd5e1' };
@@ -31,6 +30,7 @@ const ClassroomSetup = ({ roomList, token, fetchData }) => {
     };
 
     const formatDateParts = (dateStr) => {
+        if (!dateStr) return { dayName: '—', dateNum: '—' };
         const date = new Date(dateStr);
         return {
             dayName: date.toLocaleDateString('en-GB', { weekday: 'long' }).toUpperCase(),
@@ -38,46 +38,64 @@ const ClassroomSetup = ({ roomList, token, fetchData }) => {
         };
     };
 
-    // --- SORTING & FILTERING LOGIC ---
     const sortedAndFilteredRooms = useMemo(() => {
+        if (!Array.isArray(roomList)) return [];
+
         return [...roomList]
             .filter(room => {
-                return (!filterDate || room.date === filterDate) &&
-                       (!filterBlock || room.block === filterBlock) &&
-                       (!filterSession || room.session === filterSession) &&
-                       (!filterType || room.exam_type === filterType);
+                const matchesDate = !filterDate || room.date === filterDate;
+                const matchesType = !filterType || room.exam_type === filterType;
+                return matchesDate && matchesType;
             })
             .sort((a, b) => {
-                // 1. Primary Sort: Date (Oldest to Newest)
-                const dateDiff = new Date(a.date) - new Date(b.date);
-                if (dateDiff !== 0) return dateDiff;
+                const dateA = a.date ? new Date(a.date) : 0;
+                const dateB = b.date ? new Date(b.date) : 0;
+                if (dateA !== dateB) return dateA - dateB;
 
-                // 2. Secondary Sort: Session (FN before AN)
-                // Since 'F' > 'A', we reverse localeCompare
-                return b.session.localeCompare(a.session);
+                const sessionA = a.session || '';
+                const sessionB = b.session || '';
+                return sessionB.localeCompare(sessionA);
             });
-    }, [roomList, filterDate, filterBlock, filterSession, filterType]);
+    }, [roomList, filterDate, filterType]);
 
-    // --- ACTIONS ---
     const handleAddBlock = () => {
-        if (newBlockInput && !blocks.includes(newBlockInput)) {
-            setBlocks([...blocks, newBlockInput]);
-            setRoomForm({ ...roomForm, block: newBlockInput });
+        if (newBlockInput.trim() && !blocks.includes(newBlockInput.trim())) {
+            const updatedBlocks = [...blocks, newBlockInput.trim()];
+            setBlocks(updatedBlocks);
+            setRoomInput({ ...roomInput, block: newBlockInput.trim() });
             setNewBlockInput('');
         }
     };
 
-    const handleRoomInsert = async (e) => {
+    // Corrected: Directly saves one classroom at a time
+    const handleSingleSave = async (e) => {
         e.preventDefault();
+        if (!roomInput.room_no || !roomInput.capacity) {
+            alert("Please enter Room Number and Capacity");
+            return;
+        }
+        
         try {
-            await axios.post('http://127.0.0.1:8000/api/admin/insert-room/', roomForm, {
+            const payload = {
+                date: roomInput.date,
+                session: roomInput.session,
+                exam_type: roomInput.exam_type, 
+                block: roomInput.block,
+                room_no: roomInput.room_no,
+                capacity: parseInt(roomInput.capacity, 10)
+            };
+
+            await axios.post('http://127.0.0.1:8000/api/admin/insert-room/', payload, {
                 headers: { 'Authorization': `Token ${token}` }
             });
-            alert("Room saved successfully!");
-            setRoomForm({ ...roomForm, room_no: '', capacity: '' }); 
+
+            alert(`Room ${roomInput.room_no} created successfully!`);
+            // Reset only the room specific fields, keep date/session for next entry
+            setRoomInput({ ...roomInput, room_no: '', capacity: '' });
             fetchData();
-        } catch (err) { 
-            alert("Error saving room. Please try again."); 
+        } catch (err) {
+            console.error("Save Error:", err);
+            alert("Error: Could not create room. " + (err.response?.data?.error || ""));
         }
     };
 
@@ -92,106 +110,95 @@ const ClassroomSetup = ({ roomList, token, fetchData }) => {
         }
     };
 
-    // --- PDF GENERATION ---
     const generatePDF = () => {
         const doc = new jsPDF('landscape');
         doc.setFontSize(18);
         doc.text("CLASSROOM ALLOCATION REPORT", 148, 15, { align: "center" });
-        
         const tableColumn = ["Date", "Day", "Exam Type", "Session", "Block", "Room No", "Capacity"];
         const tableRows = sortedAndFilteredRooms.map(room => {
             const { dayName, dateNum } = formatDateParts(room.date);
             return [dateNum, dayName, room.exam_type, room.session, room.block, room.room_no, room.capacity];
         });
-
-        autoTable(doc, {
-            head: [tableColumn],
-            body: tableRows,
-            startY: 25,
-            theme: 'grid',
-            headStyles: { fillColor: [45, 55, 72], halign: 'center' },
-            styles: { fontSize: 9 }
-        });
-
-        doc.save(`Classroom_Setup_${new Date().toLocaleDateString()}.pdf`);
+        autoTable(doc, { head: [tableColumn], body: tableRows, startY: 25, theme: 'grid' });
+        doc.save(`Classroom_Setup_${new Date().toISOString().split('T')[0]}.pdf`);
     };
 
     return (
-        <div className="tab-section" style={{ padding: '30px', backgroundColor: '#f4f7f6' }}>
-            <h3 style={{ color: '#1a202c', fontWeight: '800', fontSize: '1.5rem', textAlign: 'center', marginBottom: '30px' }}>
-                🏫 Classroom & Exam Session Setup
+        <div className="tab-section" style={{ padding: '30px', backgroundColor: '#f4f7f6', minHeight: '100vh' }}>
+            <h3 style={{ color: '#1a202c', fontWeight: '800', textAlign: 'center', marginBottom: '30px' }}>
+                🏫 Classroom & Session Setup
             </h3>
 
-            {/* --- INSERTION FORM --- */}
-            <form className="admin-form" onSubmit={handleRoomInsert} style={{ 
-                maxWidth: '1100px', margin: '0 auto 40px', backgroundColor: '#fff', 
-                padding: '25px', borderRadius: '16px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)',
-                border: '1px solid #edf2f7'
-            }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '15px', alignItems: 'end' }}>
-                    <div>
-                        <label className="form-label" style={{ fontSize: '11px', fontWeight: '800' }}>DATE</label>
-                        <input type="date" className="admin-input" value={roomForm.date} onChange={e => setRoomForm({...roomForm, date: e.target.value})} required />
+            {/* Input Section */}
+            <div style={{ maxWidth: '1100px', margin: '0 auto 20px', backgroundColor: '#fff', padding: '25px', borderRadius: '16px', border: '1px solid #edf2f7', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
+                <form onSubmit={handleSingleSave}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px', marginBottom: '20px', paddingBottom: '20px', borderBottom: '2px solid #f7fafc' }}>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '11px', fontWeight: '800', marginBottom: '5px' }}>EXAM DATE</label>
+                            <input type="date" style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd' }} value={roomInput.date} onChange={e => setRoomInput({...roomInput, date: e.target.value})} />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '11px', fontWeight: '800', marginBottom: '5px' }}>EXAM TYPE</label>
+                            <select style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd' }} value={roomInput.exam_type} onChange={e => setRoomInput({...roomInput, exam_type: e.target.value})}>
+                                <option value="Regular">Regular</option>
+                                <option value="Internal Test 1">Internal Test 1</option>
+                                <option value="Internal Test 2">Internal Test 2</option>
+                                <option value="Supplementary">Supplementary</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '11px', fontWeight: '800', marginBottom: '5px' }}>SESSION</label>
+                            <select style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd' }} value={roomInput.session} onChange={e => setRoomInput({...roomInput, session: e.target.value})}>
+                                <option value="FN">FN</option>
+                                <option value="AN">AN</option>
+                            </select>
+                        </div>
                     </div>
-                    <div>
-                        <label className="form-label" style={{ fontSize: '11px', fontWeight: '800' }}>EXAM TYPE</label>
-                        <select className="admin-select" value={roomForm.exam_type} onChange={e => setRoomForm({...roomForm, exam_type: e.target.value})}>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '15px', alignItems: 'end' }}>
+                        <div>
+                            <label style={{ fontSize: '11px', fontWeight: '800' }}>BLOCK</label>
+                            <select style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd' }} value={roomInput.block} onChange={e => setRoomInput({...roomInput, block: e.target.value})}>
+                                {blocks.map(b => <option key={b} value={b}>{b}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label style={{ fontSize: '11px', fontWeight: '800' }}>+ NEW BLOCK</label>
+                            <div style={{ display: 'flex', gap: '5px' }}>
+                                <input type="text" style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #ddd' }} placeholder="Name" value={newBlockInput} onChange={e => setNewBlockInput(e.target.value)} />
+                                <button type="button" onClick={handleAddBlock} style={{ padding: '8px', background: '#64748b', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Add</button>
+                            </div>
+                        </div>
+                        <div>
+                            <label style={{ fontSize: '11px', fontWeight: '800' }}>ROOM NO</label>
+                            <input type="text" style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd' }} placeholder="301" value={roomInput.room_no} onChange={e => setRoomInput({...roomInput, room_no: e.target.value})} />
+                        </div>
+                        <div>
+                            <label style={{ fontSize: '11px', fontWeight: '800' }}>CAPACITY</label>
+                            <input type="number" style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd' }} placeholder="30" value={roomInput.capacity} onChange={e => setRoomInput({...roomInput, capacity: e.target.value})} />
+                        </div>
+                        <button type="submit" style={{ backgroundColor: '#2d3748', color: 'white', padding: '11px', borderRadius: '8px', fontWeight: '700', border: 'none', cursor: 'pointer' }}>
+                            ✅ Create Room
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            {/* List Table */}
+            <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <h4 style={{ color: '#475569', fontWeight: '700' }}>Live Schedule</h4>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <input type="date" style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }} value={filterDate} onChange={e => setFilterDate(e.target.value)} />
+                        <select style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }} value={filterType} onChange={e => setFilterType(e.target.value)}>
+                            <option value="">All Types</option>
                             <option value="Regular">Regular</option>
                             <option value="Internal Test 1">Internal Test 1</option>
                             <option value="Internal Test 2">Internal Test 2</option>
                             <option value="Supplementary">Supplementary</option>
                         </select>
-                    </div>
-                    <div>
-                        <label className="form-label" style={{ fontSize: '11px', fontWeight: '800' }}>SESSION</label>
-                        <select className="admin-select" value={roomForm.session} onChange={e => setRoomForm({...roomForm, session: e.target.value})}>
-                            <option value="FN">Forenoon (FN)</option>
-                            <option value="AN">Afternoon (AN)</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label className="form-label" style={{ fontSize: '11px', fontWeight: '800' }}>BLOCK</label>
-                        <select className="admin-select" value={roomForm.block} onChange={e => setRoomForm({...roomForm, block: e.target.value})}>
-                            {blocks.map(b => <option key={b} value={b}>{b}</option>)}
-                        </select>
-                    </div>
-                    <div style={{ paddingLeft: '10px', borderLeft: '2px solid #e2e8f0' }}>
-                        <label className="form-label" style={{ fontSize: '11px', fontWeight: '800' }}>+ NEW BLOCK</label>
-                        <div style={{ display: 'flex', gap: '5px' }}>
-                            <input type="text" className="admin-input" placeholder="Name" value={newBlockInput} onChange={e => setNewBlockInput(e.target.value)} />
-                            <button type="button" onClick={handleAddBlock} className="btn-save" style={{ padding: '8px 12px', background: '#64748b' }}>Add</button>
-                        </div>
-                    </div>
-                    <div>
-                        <label className="form-label" style={{ fontSize: '11px', fontWeight: '800' }}>ROOM</label>
-                        <input type="text" className="admin-input" placeholder="301" value={roomForm.room_no} onChange={e => setRoomForm({...roomForm, room_no: e.target.value})} required />
-                    </div>
-                    <div>
-                        <label className="form-label" style={{ fontSize: '11px', fontWeight: '800' }}>CAPACITY</label>
-                        <input type="number" className="admin-input" placeholder="30" value={roomForm.capacity} onChange={e => setRoomForm({...roomForm, capacity: e.target.value})} required />
-                    </div>
-                    <button type="submit" className="btn-save" style={{ backgroundColor: '#2d3748', fontWeight: '700' }}>Save Room</button>
-                </div>
-            </form>
-
-            {/* --- FILTER & DISPLAY SECTION --- */}
-            <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <h4 style={{ color: '#475569', fontWeight: '700' }}>Live Availability List</h4>
-                    
-                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                        <div className="filter-box" style={{ display: 'flex', gap: '8px', padding: '5px', flexWrap: 'wrap' }}>
-                            <input type="date" className="admin-input" style={{ width: '130px' }} value={filterDate} onChange={e => setFilterDate(e.target.value)} />
-                            <select className="admin-select" style={{ width: '110px' }} value={filterType} onChange={e => setFilterType(e.target.value)}>
-                                <option value="">All Types</option>
-                                <option value="Regular">Regular</option>
-                                <option value="Internal Test 1">Internal 1</option>
-                                <option value="Internal Test 2">Internal 2</option>
-                                <option value="Supplementary">Supplementary</option>
-                            </select>
-                            <button onClick={() => { setFilterDate(''); setFilterBlock(''); setFilterSession(''); setFilterType(''); }} className="btn-delete-outline" style={{ padding: '5px 12px' }}>Reset</button>
-                        </div>
-                        <button onClick={generatePDF} style={{ padding: '8px 15px', backgroundColor: '#27ae60', color: 'white', border: 'none', borderRadius: '6px', fontWeight: '600', cursor: 'pointer' }}>Download PDF</button>
+                        <button onClick={() => { setFilterDate(''); setFilterType(''); }} style={{ background: '#cbd5e1', border: 'none', padding: '0 15px', borderRadius: '6px', cursor: 'pointer' }}>Reset</button>
+                        <button onClick={generatePDF} style={{ padding: '8px 15px', backgroundColor: '#27ae60', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Download PDF</button>
                     </div>
                 </div>
 
@@ -199,8 +206,8 @@ const ClassroomSetup = ({ roomList, token, fetchData }) => {
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                             <tr style={{ backgroundColor: '#2d3748', color: 'white' }}>
-                                <th style={{ padding: '15px', textAlign: 'left' }}>Date & Day</th>
-                                <th style={{ padding: '15px', textAlign: 'center' }}>Exam Type</th>
+                                <th style={{ padding: '15px', textAlign: 'left' }}>Date</th>
+                                <th style={{ padding: '15px', textAlign: 'center' }}>Type</th>
                                 <th style={{ padding: '15px', textAlign: 'center' }}>Session</th>
                                 <th style={{ padding: '15px', textAlign: 'left' }}>Block</th>
                                 <th style={{ padding: '15px', textAlign: 'left' }}>Room</th>
@@ -213,47 +220,33 @@ const ClassroomSetup = ({ roomList, token, fetchData }) => {
                                 const { dayName, dateNum } = formatDateParts(room.date);
                                 const typeStyle = getExamTypeStyles(room.exam_type);
                                 return (
-                                    <tr key={room.id} style={{ 
-                                        borderBottom: '1px solid #edf2f7',
-                                        backgroundColor: room.session === 'FN' ? '#fff' : '#fcfcfc'
-                                    }}>
-                                        <td style={{ padding: '15px', borderLeft: room.session === 'FN' ? '4px solid #2b6cb0' : '4px solid #c05621' }}>
+                                    <tr key={room.id} style={{ borderBottom: '1px solid #edf2f7' }}>
+                                        <td style={{ padding: '15px' }}>
                                             <div style={{ fontWeight: '800', color: '#2b6cb0', fontSize: '13px' }}>{dayName}</div>
                                             <div style={{ fontSize: '11px', color: '#718096' }}>{dateNum}</div>
                                         </td>
                                         <td style={{ padding: '15px', textAlign: 'center' }}>
-                                            <span style={{ 
-                                                padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', 
-                                                backgroundColor: typeStyle.bg, color: typeStyle.color, border: `1px solid ${typeStyle.border}`
-                                            }}>
-                                                {room.exam_type || 'Regular'}
+                                            <span style={{ padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', backgroundColor: typeStyle.bg, color: typeStyle.color, border: `1px solid ${typeStyle.border}` }}>
+                                                {room.exam_type}
                                             </span>
                                         </td>
                                         <td style={{ padding: '15px', textAlign: 'center' }}>
-                                            <span style={{ 
-                                                padding: '4px 10px', borderRadius: '12px', fontSize: '10px', fontWeight: '800', 
-                                                backgroundColor: room.session === 'FN' ? '#ebf8ff' : '#fffaf0', 
-                                                color: room.session === 'FN' ? '#2b6cb0' : '#c05621' 
-                                            }}>
+                                            <span style={{ padding: '4px 10px', borderRadius: '12px', fontSize: '10px', fontWeight: '800', backgroundColor: room.session === 'FN' ? '#ebf8ff' : '#fffaf0', color: room.session === 'FN' ? '#2b6cb0' : '#c05621' }}>
                                                 {room.session}
                                             </span>
                                         </td>
-                                        <td style={{ padding: '15px', color: '#4a5568', fontWeight: '500' }}>{room.block}</td>
-                                        <td style={{ padding: '15px' }}>
-                                            <span style={{ backgroundColor: '#f1f5f9', padding: '4px 8px', borderRadius: '4px', fontWeight: '700', color: '#1e293b' }}>
-                                                {room.room_no}
-                                            </span>
-                                        </td>
+                                        <td style={{ padding: '15px' }}>{room.block}</td>
+                                        <td style={{ padding: '15px' }}><strong>{room.room_no}</strong></td>
+                                        <td style={{ padding: '15px', textAlign: 'center' }}>{room.capacity}</td>
                                         <td style={{ padding: '15px', textAlign: 'center' }}>
-                                            <strong>{room.capacity}</strong> <small style={{ color: '#94a3b8' }}>Seats</small>
-                                        </td>
-                                        <td style={{ padding: '15px', textAlign: 'center' }}>
-                                            <button onClick={() => handleRemoveRoom(room.id)} className="btn-delete-outline" style={{ fontSize: '12px' }}>Delete</button>
+                                            <button onClick={() => handleRemoveRoom(room.id)} style={{ color: '#e53e3e', background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px' }}>Delete</button>
                                         </td>
                                     </tr>
                                 );
                             }) : (
-                                <tr><td colSpan="7" style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>No schedules found.</td></tr>
+                                <tr>
+                                    <td colSpan="7" style={{ padding: '30px', textAlign: 'center', color: '#a0aec0' }}>No records found matching filters.</td>
+                                </tr>
                             )}
                         </tbody>
                     </table>

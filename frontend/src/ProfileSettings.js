@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import './Admin.css';
+import './StaffHome.css';
 
-const ProfileSettings = ({ token, refreshData }) => {
-    const [loading, setLoading] = useState(true);
+const ProfileSettings = ({ token, refreshData, initialData }) => {
+    const [loading, setLoading] = useState(!initialData);
     const [profileImage, setProfileImage] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
     const [profileData, setProfileData] = useState({
@@ -15,12 +15,19 @@ const ProfileSettings = ({ token, refreshData }) => {
         department: '',
         branch: '',
         password: '',
-        profile_pic: '' 
     });
+
+    const BASE_URL = 'http://127.0.0.1:8000';
+
+    const formatImageUrl = (url) => {
+        if (!url) return 'https://via.placeholder.com/150';
+        const fullUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`;
+        return `${fullUrl}${fullUrl.includes('?') ? '&' : '?'}t=${new Date().getTime()}`;
+    };
 
     const fetchProfile = useCallback(async () => {
         try {
-            const res = await axios.get('http://127.0.0.1:8000/api/profile/', {
+            const res = await axios.get(`${BASE_URL}/api/profile/`, {
                 headers: { 'Authorization': `Token ${token}` }
             });
             
@@ -30,13 +37,8 @@ const ProfileSettings = ({ token, refreshData }) => {
                 password: '' 
             }));
 
-            // FIX 1: Check if the path already contains http. If not, add the base URL.
-            if (res.data.profile_pic) {
-                const imageUrl = res.data.profile_pic.startsWith('http') 
-                    ? res.data.profile_pic 
-                    : `http://127.0.0.1:8000${res.data.profile_pic}`;
-                setImagePreview(imageUrl);
-            }
+            const pic = res.data.profile_pic || res.data.image_url;
+            if (pic) setImagePreview(formatImageUrl(pic));
         } catch (err) {
             console.error("Error fetching profile:", err);
         } finally {
@@ -45,36 +47,37 @@ const ProfileSettings = ({ token, refreshData }) => {
     }, [token]);
 
     useEffect(() => {
-        fetchProfile();
-    }, [fetchProfile]);
+        if (initialData) {
+            setProfileData(prev => ({ ...prev, ...initialData, password: '' }));
+            const pic = initialData.profile_pic || initialData.image_url || initialData.image;
+            setImagePreview(formatImageUrl(pic));
+            setLoading(false);
+        } else {
+            fetchProfile();
+        }
+    }, [initialData, fetchProfile]);
 
     const handleImageChange = (e) => {
         const file = e.target.files[0];
         if (file) {
             setProfileImage(file);
-            setImagePreview(URL.createObjectURL(file));
+            setImagePreview(URL.createObjectURL(file)); 
         }
     };
 
     const handleUpdate = async (e) => {
         e.preventDefault();
-        
         const formData = new FormData();
-        formData.append('name', profileData.name);
-        formData.append('phone_number', profileData.phone_number);
-        formData.append('grade', profileData.grade);
+        formData.append('name', profileData.name || '');
+        formData.append('phone_number', profileData.phone_number || '');
+        formData.append('grade', profileData.grade || '');
         
-        if (profileData.password) {
-            formData.append('password', profileData.password);
-        }
-
-        // FIX 2: Ensure the key 'profile_pic' matches exactly what your Django Serializer expects
-        if (profileImage) {
-            formData.append('profile_pic', profileImage); 
-        }
+        if (profileData.password) formData.append('password', profileData.password);
+        if (profileImage) formData.append('profile_pic', profileImage); 
 
         try {
-            await axios.post('http://127.0.0.1:8000/api/update-profile/', formData, {
+            setLoading(true);
+            await axios.post(`${BASE_URL}/api/update-profile/`, formData, {
                 headers: { 
                     'Authorization': `Token ${token}`,
                     'Content-Type': 'multipart/form-data' 
@@ -83,66 +86,72 @@ const ProfileSettings = ({ token, refreshData }) => {
             
             alert("Profile Updated Successfully!");
             setProfileData(prev => ({ ...prev, password: '' }));
-            if (refreshData) refreshData(); 
+            if (refreshData) await refreshData(); 
         } catch (err) {
-            console.error("Update Error:", err.response?.data);
-            alert("Update failed: " + (JSON.stringify(err.response?.data) || "Error"));
+            alert("Update failed: " + (err.response?.data?.detail || "Check server"));
+        } finally {
+            setLoading(false);
         }
     };
 
-    if (loading) return <div className="loader">Loading profile details...</div>;
+    if (loading) return <div className="loader">Updating Profile...</div>;
 
     return (
-        <div className="tab-section" style={{ maxWidth: '800px', margin: '0 auto' }}>
-            <h3 style={{ borderBottom: '2px solid #3498db', paddingBottom: '10px', color: '#2c3e50' }}>Profile Settings</h3>
+        <div className="timetable-card" style={{ maxWidth: '800px', margin: '0 auto' }}>
+            <div className="card-header">
+                <h3>Account Settings</h3>
+            </div>
             
-            <form className="admin-form" onSubmit={handleUpdate} style={{ background: '#fff', padding: '25px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-
-                <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-                    <div style={{ position: 'relative', display: 'inline-block' }}>
+            <form onSubmit={handleUpdate} className="settings-form">
+                {/* Profile Picture Upload Section */}
+                <div className="profile-image-wrapper" style={{ marginBottom: '30px' }}>
+                    <div className="image-container" style={{ position: 'relative' }}>
                         <img 
-                            src={imagePreview || 'https://via.placeholder.com/150'} 
+                            src={imagePreview} 
                             alt="Profile" 
-                            style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', border: '3px solid #3498db' }} 
-                            // Error handling if image fails to load
+                            className="profile-img"
                             onError={(e) => { e.target.src = 'https://via.placeholder.com/150'; }}
                         />
-                        <label htmlFor="file-input" style={{ position: 'absolute', bottom: '5px', right: '5px', background: '#3498db', color: '#fff', borderRadius: '50%', width: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '18px' }}>
-                            +
+                        <label htmlFor="file-input" className="upload-button-outside" style={{ position: 'absolute', bottom: '0', right: '0' }}>
+                            ✎
                         </label>
-                        <input id="file-input" type="file" accept="image/*" onChange={handleImageChange} style={{ display: 'none' }} />
+                        <input id="file-input" type="file" accept="image/*" onChange={handleImageChange} hidden />
                     </div>
-                    <p style={{ fontSize: '12px', color: '#7f8c8d', marginTop: '5px' }}>Click + to upload new photo</p>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Click the icon to change photo</p>
                 </div>
 
-                <div className="form-row" style={{ marginBottom: '15px' }}>
-                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Full Name</label>
-                    <input 
-                        type="text" 
-                        placeholder="Enter your full name"
-                        style={{ width: '100%', padding: '10px' }}
-                        value={profileData.name || ''} 
-                        onChange={e => setProfileData({...profileData, name: e.target.value})} 
-                        required
-                    />
-                </div>
-
-                <div className="form-row" style={{ display: 'flex', gap: '20px', marginBottom: '15px' }}>
-                    <div style={{ flex: 1 }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Phone Number</label>
+                {/* Form Fields using StaffHome.css logic */}
+                <div className="meta-grid-horizontal" style={{ background: 'transparent', padding: '0', color: 'var(--text-main)' }}>
+                    <div className="form-group">
+                        <label><strong>Full Name</strong></label>
                         <input 
                             type="text" 
-                            style={{ width: '100%', padding: '10px' }}
+                            className="staff-view-table" // Reusing table-style input borders
+                            style={{ width: '100%', textAlign: 'left', borderRadius: '8px', border: '1px solid #ddd', marginTop: '5px' }}
+                            value={profileData.name || ''} 
+                            onChange={e => setProfileData({...profileData, name: e.target.value})} 
+                            required
+                        />
+                    </div>
+
+                    <div className="form-group">
+                        <label><strong>Phone Number</strong></label>
+                        <input 
+                            type="text" 
+                            className="staff-view-table"
+                            style={{ width: '100%', textAlign: 'left', borderRadius: '8px', border: '1px solid #ddd', marginTop: '5px' }}
                             value={profileData.phone_number || ''} 
                             onChange={e => setProfileData({...profileData, phone_number: e.target.value.replace(/\D/g, '')})} 
                         />
                     </div>
-                    <div style={{ flex: 1 }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Staff Grade</label>
+
+                    <div className="form-group">
+                        <label><strong>Staff Grade</strong></label>
                         <select 
+                            className="staff-view-table"
+                            style={{ width: '100%', textAlign: 'left', borderRadius: '8px', border: '1px solid #ddd', marginTop: '5px', height: '48px' }}
                             value={profileData.grade || ''} 
                             onChange={e => setProfileData({...profileData, grade: e.target.value})}
-                            style={{ width: '100%', padding: '10px' }}
                         >
                             <option value="">Select Grade</option>
                             <option value="Professor">Professor</option>
@@ -150,21 +159,22 @@ const ProfileSettings = ({ token, refreshData }) => {
                             <option value="Assistant Professor">Assistant Professor</option>
                         </select>
                     </div>
+
+                    <div className="form-group">
+                        <label><strong style={{ color: 'var(--danger)' }}>New Password</strong></label>
+                        <input 
+                            type="password" 
+                            className="staff-view-table"
+                            style={{ width: '100%', textAlign: 'left', borderRadius: '8px', border: '1px solid #ddd', marginTop: '5px' }}
+                            placeholder="Optional" 
+                            value={profileData.password || ''}
+                            onChange={e => setProfileData({...profileData, password: e.target.value})} 
+                        />
+                    </div>
                 </div>
 
-                <div className="form-row" style={{ marginBottom: '25px' }}>
-                    <label style={{ color: '#c0392b', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>New Password</label>
-                    <input 
-                        type="password" 
-                        style={{ width: '100%', padding: '10px', border: '1px solid #ddd' }}
-                        placeholder="Leave blank to keep current password" 
-                        value={profileData.password}
-                        onChange={e => setProfileData({...profileData, password: e.target.value})} 
-                    />
-                </div>
-
-                <div style={{ textAlign: 'right' }}>
-                    <button type="submit" className="btn-primary" style={{ padding: '12px 40px', fontSize: '15px', borderRadius: '6px', cursor: 'pointer' }}>
+                <div style={{ textAlign: 'right', marginTop: '20px', borderTop: '1px solid #eee', paddingTop: '20px' }}>
+                    <button type="submit" className="menu-trigger" style={{ padding: '12px 40px' }}>
                         Save Changes
                     </button>
                 </div>
