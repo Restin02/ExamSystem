@@ -89,15 +89,22 @@ const ExamSchedule = ({ departments, token, renderBranchOptions, renderSemesterO
 };
 
     const handleDeleteSchedule = async (id) => {
-        if (window.confirm("Delete this schedule? This will refund staff duty counts.")) {
-            try {
-                await axios.delete(`http://127.0.0.1:8000/api/admin/delete-exam-schedule/${id}/`, {
-                    headers: { 'Authorization': `Token ${token}` }
-                });
-                setSavedSchedules(prev => prev.filter(exam => exam.id !== id));
-            } catch (err) { alert("Failed to delete."); }
+    // Updated confirmation message to remove "refund" mention
+    if (window.confirm("Are you sure you want to delete this schedule?")) {
+        try {
+            await axios.delete(`http://127.0.0.1:8000/api/admin/delete-exam-schedule/${id}/`, {
+                headers: { 'Authorization': `Token ${token}` }
+            });
+            
+            // Remove from local state immediately for UI responsiveness
+            setSavedSchedules(prev => prev.filter(exam => exam.id !== id));
+            alert("Schedule deleted.");
+        } catch (err) { 
+            alert("Failed to delete schedule."); 
+            console.error(err);
         }
-    };
+    }
+};
 
     // Helpers for dynamic rows
     const addMoreExamEntry = () => setExamEntries([...examEntries, { dept: 'B.Tech', branch: '', sem: 'S1', subject: '' }]);

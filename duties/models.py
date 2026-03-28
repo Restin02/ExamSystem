@@ -209,40 +209,29 @@ def clean_name(text):
     if not text: return ""
     return re.sub(r'[^A-Z0-9]', '', str(text).upper())
 
-@receiver(post_save, sender='duties.ExamSchedule')
+@receiver(post_save, sender=ExamSchedule)
 def auto_calculate_availability(sender, instance, created, **kwargs):
     """
-    Allocates staff to a specific course exam.
-    Appends new allocations for new courses in the same session.
+    STEP 1: Identify who is free on this day/session.
+    DOES NOT decrease duty counts.
     """
-    from .models import StaffAvailability, StaffManagement, ExamSchedule
-    
+    if not created:
+        return
+
     # 1. Date and Session Setup
     d = instance.date
     date_obj = datetime.strptime(d, '%Y-%m-%d').date() if isinstance(d, str) else d
     exam_day_short = date_obj.strftime('%a') 
     target_indices = [0, 1, 2] if instance.session == 'FN' else [3, 4, 5]
 
-    # 2. Map Exam Type to Duty Field
-    type_str = (instance.exam_type or "Regular").upper()
-    if "INTERNAL TEST 1" in type_str:
-        duty_field = 'internal1_duty_count'
-    elif "INTERNAL TEST 2" in type_str:
-        duty_field = 'internal2_duty_count'
-    elif "SUPPLEMENTARY" in type_str or "SUPPLY" in type_str:
-        duty_field = 'supply_duty_count'
-    else:
-        duty_field = 'regular_duty_count'
-
-    # 3. Identify courses having exams
+    # 2. Identify courses having exams to check for "Virtual Free" slots
     active_exams = ExamSchedule.objects.filter(date=date_obj, session=instance.session)
     active_exam_courses = [clean_name(e.course_name) for e in active_exams]
     
-    # 4. Filter Staff Pool
-    staff_with_balance = StaffManagement.objects.filter(**{f"{duty_field}__gt": 0})
+    # 3. Get all staff
+    all_staff = StaffManagement.objects.all()
     
-    # To prevent assigning the SAME staff member to multiple courses in the same session
-    # We fetch who is already busy in this specific session (Monday AN)
+    # Pre-fetch busy staff to avoid double listing
     busy_staff_ids = set(
         StaffAvailability.objects.filter(
             exam_date=date_obj, 
@@ -251,8 +240,7 @@ def auto_calculate_availability(sender, instance, created, **kwargs):
     )
 
     available_pool = []
-    for staff in staff_with_balance:
-        # If Jijo is already assigned to IMCA S2, he is 'busy', so we skip him for IMCA S8
+    for staff in all_staff:
         if staff.user.id in busy_staff_ids:
             continue
 
@@ -282,50 +270,32 @@ def auto_calculate_availability(sender, instance, created, **kwargs):
         if not has_any_classes or (is_freed_by_exam and not is_busy_non_exam):
             available_pool.append(staff)
 
-    # 5. Priority Sorting (Grade -> Balance -> ID)
+    # 4. Sorting for priority
     available_pool.sort(key=lambda s: (
         1 if 'ASSISTANT' in str(s.grade).upper() else 2 if 'ASSOCIATE' in str(s.grade).upper() else 3,
-        -getattr(s, duty_field, 0),
-        -s.id 
+        s.id 
     ))
 
-    # 6. Allocation (Atomic Append)
-    try:
-        with transaction.atomic():
-            for staff_profile in available_pool:
-                # Check if this specific user already has a record for THIS specific course
-                # This check ensures we APPEND for IMCA S8 even if IMCA S2 exists.
-                exists = StaffAvailability.objects.filter(
-                    staff=staff_profile.user, 
-                    exam_date=date_obj, 
+    # 5. Create Availability Records (WITHOUT deducting balance)
+    with transaction.atomic():
+        for staff_profile in available_pool:
+            exists = StaffAvailability.objects.filter(
+                staff=staff_profile.user, 
+                exam_date=date_obj, 
+                session=instance.session,
+                course_name=instance.course_name
+            ).exists()
+
+            if not exists:
+                StaffAvailability.objects.create(
+                    staff=staff_profile.user,
+                    exam_date=date_obj,
                     session=instance.session,
+                    day=date_obj.strftime('%A'),
+                    is_available=True,
+                    is_assigned=False, # Important: Not assigned yet
                     course_name=instance.course_name
-                ).exists()
-
-                if not exists:
-                    # CREATE NEW RECORD (APPENDS to the table)
-                    StaffAvailability.objects.create(
-                        staff=staff_profile.user,
-                        exam_date=date_obj,
-                        session=instance.session,
-                        day=date_obj.strftime('%A'),
-                        is_available=True,
-                        course_name=instance.course_name # e.g., 'IMCA S8'
-                    )
-
-                    # Deduct balance
-                    StaffManagement.objects.filter(id=staff_profile.id).update(
-                        **{duty_field: Greatest(F(duty_field) - 1, 0)}
-                    )
-                    
-                    # Mark as busy for the rest of this transaction's loop
-                    busy_staff_ids.add(staff_profile.user.id)
-                    
-                    # If you only need 1 staff member per course creation, uncomment 'break'
-                    # break 
-
-    except Exception as e:
-        print(f"Error during allocation: {e}")
+                )
 
 
 @receiver(post_delete, sender='duties.ExamSchedule')
@@ -442,59 +412,63 @@ def check_staff_slot_status(staff_user, exam_date, session):
 @receiver(post_save, sender=ClassroomSetup)
 def allocate_staff_to_classroom(sender, instance, created, **kwargs):
     """
-    When a classroom is created, automatically find the next 
-    available staff member and assign them to this room.
+    STEP 2: When a classroom is created, pick a staff, assign them,
+    and ONLY THEN update the duty count.
     """
     if created:
         try:
             with transaction.atomic():
-                # 1. Try to find an existing exam schedule to get the correct Exam Type
+                # 1. Get Exam Type for the session
                 exam = ExamSchedule.objects.filter(
                     date=instance.date, 
                     session=instance.session
                 ).first()
                 
                 exam_type = exam.exam_type if exam else "Regular"
+                
+                # Determine which field to increment
+                type_str = exam_type.upper()
+                if "INTERNAL TEST 1" in type_str:
+                    duty_field = 'internal1_duty_count'
+                elif "INTERNAL TEST 2" in type_str:
+                    duty_field = 'internal2_duty_count'
+                elif "SUPPLEMENTARY" in type_str:
+                    duty_field = 'supply_duty_count'
+                else:
+                    duty_field = 'regular_duty_count'
 
-                # 2. Find the first available staff member for this slot
-                # We filter by is_available=True and is_assigned=False
+                # 2. Find the first available (and not yet assigned) staff member
                 avail_record = StaffAvailability.objects.select_for_update().filter(
                     exam_date=instance.date,
                     session=instance.session,
                     is_available=True,
                     is_assigned=False
-                ).order_by('id').first() # FIFO: Picks the one who was added first
+                ).order_by('id').first()
 
                 if avail_record:
-                    staff_profile = getattr(avail_record.staff, 'staffmanagement', None)
+                    staff_mgmt = StaffManagement.objects.get(user=avail_record.staff)
                     
-                    if staff_profile:
-                        # 3. Create the Duty Assignment with the staff linked
-                        DutyAssignment.objects.create(
-                            room=instance,
-                            date=instance.date,
-                            session=instance.session,
-                            staff=staff_profile,
-                            exam_type=exam_type
-                        )
+                    # 3. Create the Duty Assignment
+                    DutyAssignment.objects.create(
+                        room=instance,
+                        date=instance.date,
+                        session=instance.session,
+                        staff=staff_mgmt,
+                        exam_type=exam_type
+                    )
 
-                        # 4. Mark staff as assigned
-                        avail_record.is_assigned = True
-                        avail_record.save()
+                    # 4. Mark availability record as assigned
+                    avail_record.is_assigned = True
+                    avail_record.save()
 
-                        # 5. Increment the correct duty counter
-                        etype = str(exam_type).lower()
-                        if 'internal 1' in etype:
-                            staff_profile.internal1_duty_count += 1
-                        elif 'internal 2' in etype:
-                            staff_profile.internal2_duty_count += 1
-                        else:
-                            staff_profile.regular_duty_count += 1
-                        staff_profile.save()
-                    
+                    # 5. INCREMENT the duty count (or deduct balance based on your logic)
+                    # Note: If your system uses "Balance" (starting at 10 and going to 0), use F - 1.
+                    # If it uses "Duty Count" (starting at 0 and going up), use F + 1.
+                    StaffManagement.objects.filter(id=staff_mgmt.id).update(
+                        **{duty_field: F(duty_field) + 1} 
+                    )
                 else:
-                    # If no staff is available yet, create an empty assignment
-                    # This allows admin to manually assign later
+                    # Create empty assignment if no staff available
                     DutyAssignment.objects.create(
                         room=instance,
                         date=instance.date,

@@ -61,7 +61,7 @@ const StaffDutyAllocation = () => {
     };
 
     const fetchAllocatedStaff = async () => {
-        if (!startDate || !endDate) return alert("Please select date range");
+        if (!startDate || !endDate) return alert("Please select both start and end dates");
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
@@ -71,7 +71,7 @@ const StaffDutyAllocation = () => {
             });
             setAvailableStaff(res.data.allocated_staff || []);
         } catch (err) {
-            alert("Error fetching records.");
+            alert("Error fetching records. Check your connection or login status.");
         } finally {
             setLoading(false);
         }
@@ -118,52 +118,58 @@ const StaffDutyAllocation = () => {
         }
     };
 
-    
     return (
         <div style={{ padding: '30px', backgroundColor: '#f4f7f6', minHeight: '100vh', fontFamily: 'sans-serif' }}>
             <div style={{ textAlign: 'center', marginBottom: '30px' }}>
                 <h2 style={{ color: '#1a202c', fontWeight: '800' }}>Faculty Duty Allocation Dashboard</h2>
-                <p style={{ color: '#718096' }}>Allocation and distribution tracking</p>
+                <p style={{ color: '#718096' }}>Comprehensive report generation and tracking</p>
             </div>
 
             {/* Range Selectors */}
             <div style={{ 
-                maxWidth: '1100px', margin: '0 auto 40px', backgroundColor: '#fff', 
-                padding: '20px', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)',
+                maxWidth: '1000px', margin: '0 auto 40px', backgroundColor: '#fff', 
+                padding: '25px', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)',
                 display: 'flex', justifyContent: 'center', gap: '20px', alignItems: 'flex-end', border: '1px solid #eee'
             }}>
-                <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', marginBottom: '5px', color: '#4a5568' }}>START DATE</label>
-                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '6px' }} />
+                <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', color: '#4a5568' }}>FROM DATE</label>
+                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ width: '100%', padding: '12px', border: '1px solid #ddd', borderRadius: '8px', outline: 'none' }} />
                 </div>
-                <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', marginBottom: '5px', color: '#4a5568' }}>END DATE</label>
-                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '6px' }} />
+                <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', color: '#4a5568' }}>TO DATE</label>
+                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{ width: '100%', padding: '12px', border: '1px solid #ddd', borderRadius: '8px', outline: 'none' }} />
                 </div>
-                <button onClick={fetchAllocatedStaff} style={{ padding: '11px 25px', backgroundColor: '#2d3748', color: 'white', border: 'none', borderRadius: '6px', fontWeight: '600', cursor: 'pointer' }}>
-                    {loading ? 'Fetching...' : 'Fetch Duties'}
+                <button 
+                    onClick={fetchAllocatedStaff} 
+                    style={{ padding: '12px 30px', backgroundColor: '#2d3748', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', transition: 'background 0.2s' }}
+                    onMouseOver={(e) => e.target.style.backgroundColor = '#1a202c'}
+                    onMouseOut={(e) => e.target.style.backgroundColor = '#2d3748'}
+                >
+                    {loading ? 'Fetching...' : 'Generate Report'}
                 </button>
                 {sortedStaff.length > 0 && (
-                    <button onClick={generatePDF} style={{ padding: '11px 25px', backgroundColor: '#27ae60', color: 'white', border: 'none', borderRadius: '6px', fontWeight: '600', cursor: 'pointer' }}>Download PDF</button>
+                    <button onClick={generatePDF} style={{ padding: '12px 30px', backgroundColor: '#27ae60', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>Download PDF</button>
                 )}
             </div>
 
             {/* Main Table */}
             <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
                 {loading ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: '#718096' }}>Loading allocation data...</div>
+                    <div style={{ textAlign: 'center', padding: '60px' }}>
+                        <div style={{ color: '#718096', fontSize: '18px' }}>Gathering allocation records...</div>
+                    </div>
                 ) : sortedStaff.length > 0 ? (
                     <>
-                        <div style={{ backgroundColor: '#fff', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
+                        <div style={{ backgroundColor: '#fff', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', border: '1px solid #edf2f7' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
                                     <tr style={{ backgroundColor: '#2d3748', color: 'white' }}>
-                                        <th style={{ padding: '15px', textAlign: 'left' }}>Date & Day</th>
-                                        <th style={{ padding: '15px', textAlign: 'center' }}>Exam Type</th>
-                                        <th style={{ padding: '15px', textAlign: 'left' }}>Assigned Course</th>
-                                        <th style={{ padding: '15px', textAlign: 'center' }}>Session</th>
-                                        <th style={{ padding: '15px', textAlign: 'left' }}>Faculty Name</th>
-                                        <th style={{ padding: '15px', textAlign: 'center' }}>Grade</th>
+                                        <th style={{ padding: '18px', textAlign: 'left' }}>Date & Day</th>
+                                        <th style={{ padding: '18px', textAlign: 'center' }}>Exam Type</th>
+                                        <th style={{ padding: '18px', textAlign: 'left' }}>Assigned Course</th>
+                                        <th style={{ padding: '18px', textAlign: 'center' }}>Session</th>
+                                        <th style={{ padding: '18px', textAlign: 'left' }}>Faculty Name</th>
+                                        <th style={{ padding: '18px', textAlign: 'center' }}>Grade</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -173,7 +179,7 @@ const StaffDutyAllocation = () => {
                                         const gradeStyle = getGradeStyles(item.grade);
 
                                         return (
-                                            <tr key={index} style={{ borderBottom: '1px solid #edf2f7' }}>
+                                            <tr key={index} style={{ borderBottom: '1px solid #edf2f7', transition: 'background 0.1s' }} onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#fcfdfd'} onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
                                                 <td style={{ padding: '15px' }}>
                                                     <div style={{ fontWeight: 'bold', color: '#2b6cb0', fontSize: '13px' }}>{dayName}</div>
                                                     <div style={{ fontSize: '11px', color: '#718096' }}>{dateNum}</div>
@@ -196,23 +202,25 @@ const StaffDutyAllocation = () => {
                             </table>
                         </div>
 
-                        {/* --- NEW SUMMARY SECTION --- */}
-                        <div style={{ 
-                            marginTop: '30px', display: 'flex', gap: '20px', justifyContent: 'flex-start'
-                        }}>
-                            <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', minWidth: '200px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-                                <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#718096', textTransform: 'uppercase', marginBottom: '8px' }}>Total Assignments</div>
+                        {/* Summary Metrics */}
+                        <div style={{ marginTop: '30px', display: 'flex', gap: '20px' }}>
+                            <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', minWidth: '220px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+                                <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#718096', textTransform: 'uppercase', marginBottom: '8px' }}>Total Duties Allocated</div>
                                 <div style={{ fontSize: '28px', fontWeight: '800', color: '#2d3748' }}>{sortedStaff.length}</div>
                             </div>
                             
-                            <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', minWidth: '200px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-                                <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#718096', textTransform: 'uppercase', marginBottom: '8px' }}>Unique Staff Involved</div>
+                            <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', minWidth: '220px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+                                <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#718096', textTransform: 'uppercase', marginBottom: '8px' }}>Unique Staff Deployed</div>
                                 <div style={{ fontSize: '28px', fontWeight: '800', color: '#2b6cb0' }}>{totalUniqueStaff}</div>
                             </div>
                         </div>
                     </>
                 ) : (
-                    startDate && <div style={{ textAlign: 'center', padding: '40px', color: '#a0aec0', backgroundColor: '#fff', borderRadius: '12px' }}>No records found for the selected dates.</div>
+                    startDate && !loading && (
+                        <div style={{ textAlign: 'center', padding: '60px', color: '#a0aec0', backgroundColor: '#fff', borderRadius: '12px', border: '1px dashed #cbd5e0' }}>
+                            No allocation records found for the selected date range.
+                        </div>
+                    )
                 )}
             </div>
         </div>

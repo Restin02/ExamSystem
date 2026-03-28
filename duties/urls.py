@@ -50,5 +50,6 @@ urlpatterns = [
     path('duties/', views.get_duties, name='get_duties'),
     path('admin/get-allocated-duties/', views.get_allocated_duties, name='get-allocated-duties'),
     path('admin/get-duty-assignments/', views.get_duty_assignments, name='get_duty_assignments'),
+    path('admin/allocate-staff/', views.allocate_staff_to_room, name='allocate_staff'),
 
 ]

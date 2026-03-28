@@ -4,7 +4,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 const ClassroomSetup = ({ roomList = [], token, fetchData }) => {
-    // 1. Header & Room Input State (Combined for single submission)
+    // 1. Header & Room Input State
     const [roomInput, setRoomInput] = useState({
         date: new Date().toISOString().split('T')[0],
         session: 'FN',
@@ -21,6 +21,8 @@ const ClassroomSetup = ({ roomList = [], token, fetchData }) => {
     // 3. Filters
     const [filterDate, setFilterDate] = useState('');
     const [filterType, setFilterType] = useState(''); 
+
+    // --- EXISTING UTILITIES ---
 
     const getExamTypeStyles = (type) => {
         const t = type?.toLowerCase() || '';
@@ -67,7 +69,6 @@ const ClassroomSetup = ({ roomList = [], token, fetchData }) => {
         }
     };
 
-    // Corrected: Directly saves one classroom at a time
     const handleSingleSave = async (e) => {
         e.preventDefault();
         if (!roomInput.room_no || !roomInput.capacity) {
@@ -90,23 +91,24 @@ const ClassroomSetup = ({ roomList = [], token, fetchData }) => {
             });
 
             alert(`Room ${roomInput.room_no} created successfully!`);
-            // Reset only the room specific fields, keep date/session for next entry
             setRoomInput({ ...roomInput, room_no: '', capacity: '' });
             fetchData();
         } catch (err) {
-            console.error("Save Error:", err);
             alert("Error: Could not create room. " + (err.response?.data?.error || ""));
         }
     };
 
     const handleRemoveRoom = async (id) => {
-        if (window.confirm("Are you sure?")) {
+        if (window.confirm("Delete this room?")) {
             try {
                 await axios.delete(`http://127.0.0.1:8000/api/admin/delete-room/${id}/`, {
                     headers: { 'Authorization': `Token ${token}` }
                 });
                 fetchData();
-            } catch (err) { alert("Error deleting room."); }
+                alert("Room deleted successfully.");
+            } catch (err) { 
+                alert("Error deleting room."); 
+            }
         }
     };
 
@@ -129,7 +131,7 @@ const ClassroomSetup = ({ roomList = [], token, fetchData }) => {
                 🏫 Classroom & Session Setup
             </h3>
 
-            {/* Input Section */}
+            {/* Room Creation Form */}
             <div style={{ maxWidth: '1100px', margin: '0 auto 20px', backgroundColor: '#fff', padding: '25px', borderRadius: '16px', border: '1px solid #edf2f7', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
                 <form onSubmit={handleSingleSave}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px', marginBottom: '20px', paddingBottom: '20px', borderBottom: '2px solid #f7fafc' }}>
@@ -184,8 +186,7 @@ const ClassroomSetup = ({ roomList = [], token, fetchData }) => {
                 </form>
             </div>
 
-
-            {/* List Table */}
+            {/* Live Schedule Table */}
             <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                     <h4 style={{ color: '#475569', fontWeight: '700' }}>Live Schedule</h4>
@@ -210,8 +211,7 @@ const ClassroomSetup = ({ roomList = [], token, fetchData }) => {
                                 <th style={{ padding: '15px', textAlign: 'left' }}>Date</th>
                                 <th style={{ padding: '15px', textAlign: 'center' }}>Type</th>
                                 <th style={{ padding: '15px', textAlign: 'center' }}>Session</th>
-                                <th style={{ padding: '15px', textAlign: 'left' }}>Block</th>
-                                <th style={{ padding: '15px', textAlign: 'left' }}>Room</th>
+                                <th style={{ padding: '15px', textAlign: 'left' }}>Block/Room</th>
                                 <th style={{ padding: '15px', textAlign: 'center' }}>Capacity</th>
                                 <th style={{ padding: '15px', textAlign: 'center' }}>Action</th>
                             </tr>
@@ -220,6 +220,7 @@ const ClassroomSetup = ({ roomList = [], token, fetchData }) => {
                             {sortedAndFilteredRooms.length > 0 ? sortedAndFilteredRooms.map((room) => {
                                 const { dayName, dateNum } = formatDateParts(room.date);
                                 const typeStyle = getExamTypeStyles(room.exam_type);
+                                
                                 return (
                                     <tr key={room.id} style={{ borderBottom: '1px solid #edf2f7' }}>
                                         <td style={{ padding: '15px' }}>
@@ -236,8 +237,10 @@ const ClassroomSetup = ({ roomList = [], token, fetchData }) => {
                                                 {room.session}
                                             </span>
                                         </td>
-                                        <td style={{ padding: '15px' }}>{room.block}</td>
-                                        <td style={{ padding: '15px' }}><strong>{room.room_no}</strong></td>
+                                        <td style={{ padding: '15px' }}>
+                                            <div style={{ fontSize: '11px', color: '#718096' }}>{room.block}</div>
+                                            <strong>{room.room_no}</strong>
+                                        </td>
                                         <td style={{ padding: '15px', textAlign: 'center' }}>{room.capacity}</td>
                                         <td style={{ padding: '15px', textAlign: 'center' }}>
                                             <button onClick={() => handleRemoveRoom(room.id)} style={{ color: '#e53e3e', background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px' }}>Delete</button>
@@ -246,7 +249,7 @@ const ClassroomSetup = ({ roomList = [], token, fetchData }) => {
                                 );
                             }) : (
                                 <tr>
-                                    <td colSpan="7" style={{ padding: '30px', textAlign: 'center', color: '#a0aec0' }}>No records found matching filters.</td>
+                                    <td colSpan="6" style={{ padding: '30px', textAlign: 'center', color: '#a0aec0' }}>No records found matching filters.</td>
                                 </tr>
                             )}
                         </tbody>

@@ -7,8 +7,6 @@ from .models import (
 
 # --- Helper Serializers ---
 
-from rest_framework import serializers
-
 class AvailabilitySerializer(serializers.ModelSerializer):
     # Map 'exam_date' to 'date'
     date = serializers.DateField(source='exam_date', read_only=True)
@@ -17,13 +15,11 @@ class AvailabilitySerializer(serializers.ModelSerializer):
     day = serializers.SerializerMethodField()
     
     # Pull 'exam_type' from the related session if it exists
-    # If the field is directly on the model, use source='exam_type'
-    # If it's on the session, use source='session.exam_type'
     exam_type = serializers.CharField(read_only=True)
 
     class Meta:
         model = StaffAvailability
-        fields = ['date', 'day', 'session', 'exam_type', 'is_available']
+        fields = ['date', 'day', 'session', 'exam_type', 'is_available', 'is_assigned']
 
     def get_day(self, obj):
         # Access the actual model field 'exam_date'
@@ -37,7 +33,7 @@ class AllocationSerializer(serializers.ModelSerializer):
     staff_name = serializers.ReadOnlyField(source='staff.name') 
     
     class Meta:
-        model = DutyAssignment # Ensure this is your allocation model
+        model = DutyAssignment 
         fields = '__all__'
 
 class AssignmentSerializer(serializers.ModelSerializer):
@@ -53,7 +49,6 @@ class AssignmentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DutyAssignment
-        # Ensure all these fields are included in the list
         fields = ['date', 'day', 'session', 'exam_type', 'room_no', 'block', 'staff_name']
 
     def get_day(self, obj):
@@ -68,8 +63,10 @@ class StaffManagementSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
     username = serializers.CharField(source='user.username', read_only=True)
     email = serializers.EmailField(source='user.email', read_only=True)
-    # Ensure image_url is consistent across serializers
     image_url = serializers.SerializerMethodField()
+    
+    # NEW: Added for the "Allocated/Not Allocated" status in React
+    status = serializers.SerializerMethodField()
 
     class Meta:
         model = StaffManagement
@@ -77,19 +74,31 @@ class StaffManagementSerializer(serializers.ModelSerializer):
             'id', 'user', 'name', 'username', 'email', 'staff_id', 
             'grade', 'department', 'branch', 'phone_number',
             'internal1_duty_count', 'internal2_duty_count', 
-            'regular_duty_count', 'supply_duty_count', 'image_url'
+            'regular_duty_count', 'supply_duty_count', 'image_url', 'status'
         ]
 
     def get_name(self, obj):
         return f"{obj.user.first_name} {obj.user.last_name}".strip() or obj.user.username
 
     def get_image_url(self, obj):
-        # Checks for 'profile_pic' or 'image' field in your model
-        # Adjust 'profile_pic' below to match your exact model field name
         image_field = getattr(obj, 'profile_pic', getattr(obj, 'image', None))
         if image_field and hasattr(image_field, 'url'):
-            return image_field.url # Django returns the relative /media/ path
+            return image_field.url 
         return None
+
+    def get_status(self, obj):
+        # Retrieve date and session from context sent by the view
+        date = self.context.get('date')
+        session = self.context.get('session')
+        if date and session:
+            record = StaffAvailability.objects.filter(
+                staff=obj.user, 
+                exam_date=date, 
+                session=session
+            ).first()
+            if record and record.is_assigned:
+                return "Allocated"
+        return "Not Allocated"
 
 class ClassroomSetupSerializer(serializers.ModelSerializer):
     class Meta:
@@ -122,29 +131,43 @@ class DutyAssignmentSerializer(serializers.ModelSerializer):
             'exam_type', 'room', 'room_name', 'block_name'
         ]
 
-
 class StaffProfileSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
     email = serializers.EmailField(source='user.email', read_only=True)
     image_url = serializers.SerializerMethodField()
     
-    # Use ImageField instead of SerializerMethodField to allow uploads
-    # Change 'profile_pic' to the exact field name in your StaffManagement model
+    # Status field for individual profile view context
+    status = serializers.SerializerMethodField()
+    
     profile_pic = serializers.ImageField(required=False, allow_null=True)
-
 
     class Meta:
         model = StaffManagement
         fields = [
             'name', 'staff_id', 'department', 'branch', 'grade', 
-            'phone_number', 'email', 'image_url',
+            'phone_number', 'email', 'image_url', 'status',
             'internal1_duty_count', 'internal2_duty_count', 
             'regular_duty_count', 'supply_duty_count'
         ]
-        # Keep sensitive info read-only
         read_only_fields = ['staff_id', 'internal1_duty_count', 'internal2_duty_count', 'regular_duty_count', 'supply_duty_count']
 
     def get_name(self, obj):
         return f"{obj.user.first_name} {obj.user.last_name}".strip()
 
-    
+    def get_image_url(self, obj):
+        image_field = getattr(obj, 'profile_pic', getattr(obj, 'image', None))
+        if image_field and hasattr(image_field, 'url'):
+            return image_field.url 
+        return None
+
+    def get_status(self, obj):
+        date = self.context.get('date')
+        session = self.context.get('session')
+        if date and session:
+            record = StaffAvailability.objects.filter(
+                staff=obj.user, 
+                exam_date=date, 
+                session=session
+            ).first()
+            return "Allocated" if (record and record.is_assigned) else "Not Allocated"
+        return "N/A"

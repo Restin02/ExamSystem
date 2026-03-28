@@ -1,9 +1,11 @@
 import os
 import logging
+import pandas as pd # Ensure pandas is imported for day_name conversion
 from django.contrib.auth.models import User
 from django.http import HttpResponse
 from django.db import transaction
 from django.conf import settings
+from django.db.models import F # Added for counter updates
 from django.db.models.functions import Greatest
 from django.http import JsonResponse
 from rest_framework.response import Response
@@ -16,14 +18,15 @@ from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.decorators import api_view, permission_classes, parser_classes
-from .serializers import AvailabilitySerializer, AssignmentSerializer
+from .serializers import (
+    AvailabilitySerializer, AssignmentSerializer, StaffManagementSerializer,
+    DutyAssignmentSerializer, AllocationSerializer, StaffProfileSerializer
+)
 # Import all models including Department and Branch
 from .models import (
     StaffManagement, StaffAvailability, ExamSchedule, ClassroomSetup, 
     DutyAssignment, StaffDutyRequirement, Department, Branch
 )
-from .serializers import DutyAssignmentSerializer
-from .serializers import AvailabilitySerializer, AllocationSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -120,24 +123,19 @@ def admin_insert_staff(request):
 @permission_classes([IsAdminUser])
 def get_all_staff(request):
     try:
+        # Check if date/session filters are passed for status calculation
+        exam_date = request.query_params.get('date')
+        session = request.query_params.get('session')
+        
         staff_members = StaffManagement.objects.all()
-        data = []
-        for s in staff_members:
-            data.append({
-                "id": s.id,
-                "username": s.user.username,
-                "name": s.name or s.user.get_full_name() or s.user.username,
-                "email": s.user.email,
-                "grade": s.grade,
-                "department": s.department,
-                "branch": s.branch,
-                "phone_number": s.phone_number,
-                "internal1_duty_count": s.internal1_duty_count,
-                "internal2_duty_count": s.internal2_duty_count,
-                "regular_duty_count": s.regular_duty_count,
-                "supply_duty_count": s.supply_duty_count,
-            })
-        return Response(data)
+        
+        # Using the updated serializer with context for the "Allocated" status
+        serializer = StaffManagementSerializer(
+            staff_members, 
+            many=True, 
+            context={'date': exam_date, 'session': session}
+        )
+        return Response(serializer.data)
     except Exception as e:
         return Response({"error": str(e)}, status=500)
 
@@ -302,15 +300,18 @@ def save_classroom_setup(request):
     # find the staff who didn't get a room and "charge" them a duty.
     
     balance_staff = StaffAvailability.objects.filter(
-        date=date, 
+        exam_date=date, # Corrected field name to exam_date
         session=session, 
         is_assigned=False
     )
     
     for record in balance_staff:
-        # Increase their count so they don't get an advantage over others
-        record.staff.duty_count += 1
-        record.staff.save()
+        # Get management profile
+        profile = getattr(record.staff, 'staffmanagement', None)
+        if profile:
+            # Increase their count so they don't get an advantage over others
+            profile.regular_duty_count += 1
+            profile.save()
         
     # Finally, remove them from availability so they don't show up as 'available'
     balance_staff.delete()
@@ -327,26 +328,28 @@ def auto_allocate_duty(classroom_id):
     # 2. Look for available staff matching the exact Date and Session
     # Order by id to ensure FIFO (First-In, First-Out)
     available_staff_record = StaffAvailability.objects.filter(
-        date=room.date,
+        exam_date=room.date,
         session=room.session,
         is_assigned=False
     ).order_by('id').first()
 
     if available_staff_record:
-        staff_member = available_staff_record.staff
+        staff_user = available_staff_record.staff
+        staff_profile = getattr(staff_user, 'staffmanagement', None)
         
         # 3. Create the final Duty Assignment
         DutyAssignment.objects.create(
-            staff=staff_member,
+            staff=staff_profile,
             room=room,
             date=room.date,
             session=room.session,
             exam_type=room.exam_type
         )
         
-        # 4. Update Staff status so they aren't picked twice for the same time
-        staff_member.duty_count += 1
-        staff_member.save()
+        if staff_profile:
+            # 4. Update Staff status so they aren't picked twice for the same time
+            staff_profile.regular_duty_count += 1
+            staff_profile.save()
         
         # 5. Mark this availability slot as "Used"
         available_staff_record.is_assigned = True
@@ -358,13 +361,15 @@ def auto_allocate_duty(classroom_id):
 # Cleanup logic for unallocated staff on the same day
 def cleanup_unused_staff(date, session):
     unused = StaffAvailability.objects.filter(
-        date=date, 
+        exam_date=date, 
         session=session, 
         is_assigned=False
     )
     for record in unused:
-        record.staff.duty_count += 1 # Increase count even if not used
-        record.staff.save()
+        profile = getattr(record.staff, 'staffmanagement', None)
+        if profile:
+            profile.regular_duty_count += 1 # Increase count even if not used
+            profile.save()
         record.delete() # Remove from pool as requested
 
 
@@ -483,6 +488,81 @@ def get_all_exams(request):
         })
     return Response(data)
 
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def allocate_staff_to_room(request):
+    """
+    Manually allocates a staff member to a room.
+    Ensures the staff is only assigned to ONE duty per day (FN or AN).
+    Updates staff duty counters and availability status.
+    """
+    staff_id = request.data.get('staff_id')
+    room_id = request.data.get('room_id') 
+
+    if not staff_id or not room_id:
+        return Response({"error": "Staff ID and Room ID are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        with transaction.atomic():
+            # 1. Fetch the Staff and Room objects
+            staff_profile = get_object_or_404(StaffManagement, id=staff_id)
+            room = get_object_or_404(ClassroomSetup, id=room_id)
+            exam_date = room.date  
+
+            # 2. SINGLE DUTY PER DAY CHECK
+            # Check if this staff is already in DutyAssignment for this specific date
+            already_allocated = DutyAssignment.objects.filter(
+                staff=staff_profile,
+                date=exam_date
+            ).exists()
+
+            if already_allocated:
+                return Response({
+                    "error": f"Allocation Blocked: {staff_profile.name} already has a duty assigned on {exam_date}."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # 3. Create the Assignment
+            # We use update_or_create to ensure the room is only linked to one person
+            assignment, created = DutyAssignment.objects.update_or_create(
+                room=room,
+                defaults={
+                    'staff': staff_profile,
+                    'date': exam_date,
+                    'session': room.session,
+                    'exam_type': room.exam_type
+                }
+            )
+
+            # 4. Update Staff Personal Duty Counters
+            etype = str(room.exam_type).lower()
+            if 'internal 1' in etype or 'internal test 1' in etype:
+                staff_profile.internal1_duty_count += 1
+            elif 'internal 2' in etype or 'internal test 2' in etype:
+                staff_profile.internal2_duty_count += 1
+            elif 'supply' in etype:
+                staff_profile.supply_duty_count += 1
+            else:
+                staff_profile.regular_duty_count += 1
+            
+            # Update the main duty_count used for priority logic (FIFO)
+            staff_profile.duty_count += 1
+            staff_profile.save()
+
+            # 5. Sync with StaffAvailability table
+            # Mark them as 'is_assigned=True' so they don't appear as available elsewhere
+            StaffAvailability.objects.filter(
+                staff=staff_profile.user,
+                exam_date=exam_date,
+                session=room.session
+            ).update(is_assigned=True)
+
+            return Response({
+                "message": f"Successfully allocated {staff_profile.name} to {room.room_no} ({room.session})"
+            }, status=status.HTTP_201_CREATED)
+
+    except Exception as e:
+        logger.error(f"Manual Allocation Error: {str(e)}")
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -519,15 +599,17 @@ def finalize_allocations_for_day(date, session):
     from .models import StaffAvailability
     
     remaining_staff = StaffAvailability.objects.filter(
-        date=date,
+        exam_date=date,
         session=session,
         is_assigned=False
     )
     
     for record in remaining_staff:
-        # Increase count as they were 'ready' for duty
-        record.staff.duty_count += 1
-        record.staff.save()
+        profile = getattr(record.staff, 'staffmanagement', None)
+        if profile:
+            # Increase count as they were 'ready' for duty
+            profile.regular_duty_count += 1
+            profile.save()
         # Remove them from the availability pool as per your FIFO rule
         record.delete()
 
@@ -592,55 +674,83 @@ def get_allocated_duties(request):
 @permission_classes([IsAdminUser])
 def get_available_staff_for_duty(request):
     try:
-        # Data from Admin: { "date": "2026-03-16", "branch_sem": "IMCAS2", "session": "FN" }
+        # 1. Extract Data
         exam_date = request.data.get('date')
-        target_branch_sem = request.data.get('branch_sem') # e.g., "IMCAS2"
+        target_branch_sem = request.data.get('branch_sem') # The branch having the exam
         session = request.data.get('session') # "FN" or "AN"
         
         if not all([exam_date, target_branch_sem, session]):
             return Response({"error": "Missing required fields"}, status=400)
 
-        # Get day name (e.g., "Monday")
+        # 2. Setup Context
         day_name = pd.to_datetime(exam_date).day_name()
-        
-        available_staff_list = []
-        
-        # 1. Get all staff profiles
-        all_staff = StaffProfile.objects.all().select_related('user')
-        
-        # 2. Define the blocks of periods we need free
+        # Define the blocks of periods we need free based on session
         target_periods = ['P1', 'P2', 'P3'] if session == "FN" else ['P4', 'P5', 'P6']
         
+        # Get or create the ExamSchedule object for this specific date/session
+        # (This ensures we can check DutyAssignment against it)
+        exam_schedule, _ = ExamSchedule.objects.get_or_create(
+            date=exam_date,
+            session=session
+        )
+
+        available_staff_list = []
+        
+        # 3. Optimized Data Fetching
+        # Get all staff and pre-fetch their user profiles
+        all_staff = StaffManagement.objects.all().select_related('user')
+        
+        # Get all duties already assigned for this specific schedule
+        assigned_staff_ids = DutyAssignment.objects.filter(
+            date=exam_date,
+            session=session
+        ).values_list('staff_id', flat=True)
+
         for profile in all_staff:
-            # 3. GET ORIGINAL SLOTS
-            slots = Timetable.objects.filter(staff=profile.user, day=day_name)
+            # 4. Availability Logic (Virtual Cleanup)
+            # Find timetable slots for this staff on this day
+            # EXCLUDING the branch that is currently having the exam (Virtual Free)
             
-            # 4. VIRTUAL CLEANUP: Ignore the exam branch/sem
-            # This is your logic: "If they teach IMCAS2 during the exam, they are actually free"
-            virtual_timetable = slots.exclude(branch_sem=target_branch_sem)
+            # Note: This logic assumes timetable_data is stored in the profile
+            timetable = profile.timetable_data if isinstance(profile.timetable_data, list) else []
+            # Day name short (e.g. "Mon")
+            day_short = exam_date.strftime('%a') if hasattr(exam_date, 'strftime') else pd.to_datetime(exam_date).strftime('%a')
             
-            # 5. FN/AN CHECKING
-            # We check if there are ANY remaining classes in the target periods
+            day_data = next((item for item in timetable if item.get("day") == day_short), None)
+            
             is_fully_free = True
-            for p in target_periods:
-                if virtual_timetable.filter(period=p).exists():
-                    is_fully_free = False
-                    break
-            
-            # 6. ADD TO LIST IF FREE
+            if day_data:
+                periods = day_data.get("periods", [])
+                # Map P1..P6 to indices 0..5
+                target_indices = [0, 1, 2] if session == "FN" else [3, 4, 5]
+                
+                for idx in target_indices:
+                    if idx < len(periods):
+                        slot_value = str(periods[idx]).strip() if periods[idx] else ""
+                        # If slot has a class AND it's not the branch having the exam, they are busy
+                        if slot_value != "" and slot_value != target_branch_sem:
+                            is_fully_free = False
+                            break
+
+            # 5. Allocation Status Logic
             if is_fully_free:
+                is_allocated = profile.id in assigned_staff_ids
+                
                 available_staff_list.append({
-                    "id": profile.user.id,
-                    "name": profile.user.get_full_name() or profile.user.username,
-                    "branch": profile.branch
+                    "id": profile.id,
+                    "name": profile.name or profile.user.get_full_name() or profile.user.username,
+                    "department": profile.department or "N/A",
+                    "duty_count": profile.regular_duty_count, # Show current count
+                    "allocation_status": "Allocated" if is_allocated else "Not Allocated"
                 })
 
+        # 6. Final Response
         return Response({
             "exam_details": {
                 "date": exam_date,
                 "day": day_name,
                 "session": session,
-                "target": target_branch_sem
+                "target_exam_branch": target_branch_sem
             },
             "available_staff": available_staff_list
         }, status=200)
@@ -653,11 +763,10 @@ def get_available_staff_for_duty(request):
 def get_exam_duty_data(request):
     user = request.user
     
-    # 1. Fetch Availability (Matches Scenario C: direct User link)
+    # 1. Fetch Availability 
     availability_qs = StaffAvailability.objects.filter(staff=user)
     
-    # 2. Fetch Assignments (Matches Scenario A: via StaffManagement link)
-    # We use staff__user because DutyAssignment.staff points to StaffManagement
+    # 2. Fetch Assignments 
     assignments_qs = DutyAssignment.objects.filter(staff__user=user)
     
     return Response({
@@ -683,36 +792,28 @@ def staff_dashboard(request):
             image_url = "https://via.placeholder.com/150"
 
         # 3. Return the response
-        # IMPORTANT: Key names here must match the React code exactly
         return Response({
             "profile": {
                 "name": profile.name or request.user.get_full_name() or request.user.username,
                 "email": request.user.email,
                 "phone_number": profile.phone_number,
-                "grade": profile.grade,  # This will now show correctly
+                "grade": profile.grade,  
                 "department": profile.department,
                 "branch": profile.branch,
                 "staff_id": profile.staff_id,
                 "image_url": image_url,
-                # Flattening these so React can use data.profile.internal1_duty_count
                 "internal1_duty_count": profile.internal1_duty_count,
                 "internal2_duty_count": profile.internal2_duty_count,
                 "regular_duty_count": profile.regular_duty_count,
                 "supply_duty_count": profile.supply_duty_count,
-                "total_duty_count": profile.duty_count,
+                "total_duty_count": (profile.internal1_duty_count + profile.internal2_duty_count + 
+                                   profile.regular_duty_count + profile.supply_duty_count),
             },
             "timetable": profile.timetable_data or []
         })
     except Exception as e:
         print(f"CRITICAL DASHBOARD ERROR: {str(e)}")
         return Response({"error": str(e)}, status=500)
-
-import os
-from rest_framework.decorators import api_view, permission_classes, parser_classes
-from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.response import Response
-from rest_framework import status
-from django.shortcuts import get_object_or_404
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -755,7 +856,13 @@ def allocate_duties(request):
     try:
         with transaction.atomic():
             DutyAssignment.objects.all().delete()
-            StaffManagement.objects.all().update(duty_count=0)
+            # Resetting counts based on your specific requirements
+            StaffManagement.objects.all().update(
+                internal1_duty_count=0,
+                internal2_duty_count=0,
+                regular_duty_count=0,
+                supply_duty_count=0
+            )
             sessions = ExamSchedule.objects.all()
             rooms = ClassroomSetup.objects.all()
 
@@ -771,31 +878,46 @@ def allocate_duties(request):
                         ).first()
                         limit = req.required_count if req else 0
                         current_staff_count = 0
-                        if "Internal Test 1" in current_type:
+                        
+                        etype = current_type.upper()
+                        if "INTERNAL TEST 1" in etype:
                             current_staff_count = staff.internal1_duty_count
-                        elif "Internal Test 2" in current_type:
+                        elif "INTERNAL TEST 2" in etype:
                             current_staff_count = staff.internal2_duty_count
-                        elif "Regular" in current_type:
+                        elif "REGULAR" in etype:
                             current_staff_count = staff.regular_duty_count
-                        elif "Supplementary" in current_type or "Supply" in current_type:
+                        elif "SUPPLY" in etype:
                             current_staff_count = staff.supply_duty_count
 
                         if current_staff_count < limit:
                             eligible_staff.append(staff)
 
                     if eligible_staff:
-                        eligible_staff.sort(key=lambda x: x.duty_count)
+                        # Sort by their specific counter for that exam type to maintain balance
+                        eligible_staff.sort(key=lambda x: (
+                            x.internal1_duty_count if "INTERNAL TEST 1" in current_type.upper() else
+                            x.internal2_duty_count if "INTERNAL TEST 2" in current_type.upper() else
+                            x.supply_duty_count if "SUPPLY" in current_type.upper() else
+                            x.regular_duty_count
+                        ))
                         selected_staff = eligible_staff[0]
-                        DutyAssignment.objects.create(staff=selected_staff, exam=session, room=room)
-                        if "Internal Test 1" in current_type:
+                        DutyAssignment.objects.create(
+                            staff=selected_staff, 
+                            room=room,
+                            date=room.date,
+                            session=room.session,
+                            exam_type=current_type
+                        )
+                        
+                        etype = current_type.upper()
+                        if "INTERNAL TEST 1" in etype:
                             selected_staff.internal1_duty_count += 1
-                        elif "Internal Test 2" in current_type:
+                        elif "INTERNAL TEST 2" in etype:
                             selected_staff.internal2_duty_count += 1
-                        elif "Regular" in current_type:
+                        elif "REGULAR" in etype:
                             selected_staff.regular_duty_count += 1
-                        elif "Supplementary" in current_type or "Supply" in current_type:
+                        elif "SUPPLY" in etype:
                             selected_staff.supply_duty_count += 1
-                        selected_staff.duty_count += 1
                         selected_staff.save()
             return Response({"message": "Duty Allocation Complete!"}, status=200)
     except Exception as e:
@@ -883,10 +1005,54 @@ def delete_staff(request, username):
 @permission_classes([IsAdminUser])
 def delete_room(request, id):
     try:
-        ClassroomSetup.objects.get(id=id).delete()
-        return Response({"message": "Room deleted successfully"}, status=200)
+        with transaction.atomic():
+            # 1. Get the room
+            room = get_object_or_404(ClassroomSetup, id=id)
+            exam_type = room.exam_type
+            
+            # 2. Find the DutyAssignment linked to this specific room
+            # We use select_related to get the staff profile immediately
+            assignment = DutyAssignment.objects.filter(room=room).first()
+            
+            if assignment and assignment.staff:
+                staff_profile = assignment.staff
+                
+                # 3. Decrement the specific count (Refund the duty)
+                # Note: We decrease the count because the duty is being cancelled
+                etype = str(exam_type).lower()
+                if 'internal 1' in etype or 'internal test 1' in etype:
+                    staff_profile.internal1_duty_count = max(0, staff_profile.internal1_duty_count - 1)
+                elif 'internal 2' in etype or 'internal test 2' in etype:
+                    staff_profile.internal2_duty_count = max(0, staff_profile.internal2_duty_count - 1)
+                elif 'supply' in etype:
+                    staff_profile.supply_duty_count = max(0, staff_profile.supply_duty_count - 1)
+                else:
+                    staff_profile.regular_duty_count = max(0, staff_profile.regular_duty_count - 1)
+                
+                # Also update the total duty_count if you use it for FIFO
+                staff_profile.duty_count = max(0, staff_profile.duty_count - 1)
+                staff_profile.save()
+
+                # 4. Handle StaffAvailability
+                # Since the room is deleted, the staff should become "Available" again for that slot
+                from .models import StaffAvailability
+                StaffAvailability.objects.filter(
+                    staff=staff_profile.user,
+                    exam_date=room.date,
+                    session=room.session
+                ).update(is_assigned=False)
+
+            # 5. Delete the room
+            # Because of the assignment logic, we delete the room last
+            room.delete()
+            
+            return Response({"message": "Room deleted and staff counts refunded"}, status=200)
+
     except ClassroomSetup.DoesNotExist:
         return Response({"error": "Room not found"}, status=404)
+    except Exception as e:
+        logger.error(f"Error deleting room: {str(e)}")
+        return Response({"error": str(e)}, status=400)
 
 @api_view(['DELETE'])
 @permission_classes([IsAdminUser])
